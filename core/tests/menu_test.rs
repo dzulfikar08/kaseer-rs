@@ -194,3 +194,79 @@ fn duplicate_skus_dedupe_last_wins_instead_of_aborting_the_pull() {
     assert_eq!(winner.price_minor, 17000);
     assert_eq!(winner.description, "the newer edit");
 }
+
+#[test]
+fn cloud_ids_over_companion_seeded_rows_converge_in_place() {
+    // Prod shape: the local ledger was seeded by the COMPANION (uuid ids,
+    // seed skus) and the pull comes from the CLOUD (different seed uuid
+    // ids, same skus, plus cloud-only products). Every payload row must
+    // converge onto the local row that owns its sku — in place, keeping
+    // the local id so sale_lines/stock_moves references survive — and
+    // cloud-only rows insert, local-only rows stay. Zero UNIQUE errors.
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo_in(&dir);
+    let local_americano = repo
+        .products(false, None)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.sku == "8991002100028")
+        .unwrap();
+    let untouched = repo
+        .products(false, None)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.sku == "8991002104015")
+        .unwrap(); // local-only: absent from the payload
+    let before = repo.products(true, None).unwrap().len();
+
+    let payload = menu::parse_menu(
+        r#"{
+          "v": 1, "rev": 30,
+          "taxRates": [], "categories": ["Coffee", "Cloud"],
+          "products": [
+            { "id": "cloud-uuid-americano", "sku": "8991002100028", "name": "Americano",
+               "category": "Coffee", "priceMinor": 16000, "costMinor": 5000,
+               "taxRateId": null, "trackStock": false, "lowStockAt": 0,
+               "archived": false, "description": "cloud copy",
+               "prepNotes": "cloud prep", "allergens": "none",
+               "routeKitchen": false, "imagePath": "images/cloud-a.jpg" },
+            { "id": "cloud-uuid-1", "sku": "9000000000001", "name": "Cloud Latte",
+               "category": "Cloud", "priceMinor": 21000, "costMinor": 7000,
+               "taxRateId": null, "trackStock": false, "lowStockAt": 0,
+               "archived": false, "description": "", "prepNotes": "",
+               "allergens": "", "routeKitchen": false, "imagePath": "" },
+            { "id": "cloud-uuid-2", "sku": "9000000000002", "name": "Cloud Tea",
+               "category": "Cloud", "priceMinor": 9000, "costMinor": 2000,
+               "taxRateId": null, "trackStock": false, "lowStockAt": 0,
+               "archived": false, "description": "", "prepNotes": "",
+               "allergens": "", "routeKitchen": false, "imagePath": "" },
+            { "id": "cloud-uuid-3", "sku": "9000000000003", "name": "Cloud Bombolino",
+               "category": "Cloud", "priceMinor": 33000, "costMinor": 11000,
+               "taxRateId": null, "trackStock": false, "lowStockAt": 0,
+               "archived": false, "description": "", "prepNotes": "",
+               "allergens": "", "routeKitchen": false, "imagePath": "" }
+          ]
+        }"#
+        .as_bytes(),
+    )
+    .unwrap();
+
+    let apply = menu::apply_menu(&repo, &payload).unwrap();
+    assert_eq!(apply.products, 4);
+
+    // The companion-seeded row converged IN PLACE: same id, new data.
+    let americano = repo.product_by_id(&local_americano.id).unwrap().unwrap();
+    assert_eq!(americano.name, "Americano");
+    assert_eq!(americano.price_minor, 16000);
+    assert_eq!(americano.description, "cloud copy");
+    assert_eq!(americano.image_path, "images/cloud-a.jpg");
+
+    // Cloud-only products inserted; the local-only row kept untouched.
+    let all = repo.products(true, None).unwrap();
+    assert_eq!(all.len(), before + 3);
+    assert_eq!(all.iter().filter(|p| p.category == "Cloud").count(), 3);
+    let kept = all.iter().find(|p| p.sku == untouched.sku).unwrap();
+    assert_eq!(kept.id, untouched.id);
+    assert_eq!(kept.name, untouched.name);
+    assert_eq!(kept.price_minor, untouched.price_minor);
+}

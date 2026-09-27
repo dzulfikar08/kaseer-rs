@@ -70,6 +70,8 @@ pub struct RegisterScreen {
     receipt_dialog: Entity<ReceiptDialog>,
     /// Last menu-pull revision this snapshot reflects (see spawn_menu_watch).
     menu_rev_seen: u64,
+    /// Revision parked by the watcher, consumed at the top of render.
+    pending_menu_rev: Option<u64>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -121,6 +123,7 @@ impl RegisterScreen {
             pay_dialog,
             receipt_dialog,
             menu_rev_seen: crate::menu_sync::applied_revision(),
+            pending_menu_rev: None,
             _subscriptions: Vec::new(),
         };
 
@@ -224,15 +227,31 @@ impl RegisterScreen {
     }
 
     /// Menu pull watch: the pull engine writes the ledger on a background
-    /// thread and records the applied revision in a process global; this
-    /// loop notices the move, reloads the catalog snapshot, and repaints.
-    /// Two ticks against a 30s poll keeps a pull on screen well inside one
-    /// poll interval. The loop ends when the screen entity drops.
+    /// thread and records the applied revision in a process global. The
+    /// tick itself is deliberately trivial (a field write + notify, the
+    /// same shape as Settings' refresh loop) — an async entity update must
+    /// never run ledger I/O or heavy work, or its flushed frame can
+    /// re-enter Root mid-update. The snapshot reload happens in
+    /// [`Self::consume_pending_menu_revision`] at the top of this view's
+    /// own render pass, single-threaded. The loop ends when the screen
+    /// entity drops.
     fn spawn_menu_watch(&self, cx: &mut Context<Self>) {
+        let mut seen = crate::menu_sync::applied_revision();
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
-                if this.update(cx, |this, cx| this.poll_menu_revision(cx)).is_err() {
+                let rev = crate::menu_sync::applied_revision();
+                if rev == seen {
+                    continue;
+                }
+                seen = rev;
+                if this
+                    .update(cx, |this, cx| {
+                        this.pending_menu_rev = Some(rev);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -240,11 +259,14 @@ impl RegisterScreen {
         .detach();
     }
 
-    fn poll_menu_revision(&mut self, cx: &mut Context<Self>) {
-        let rev = crate::menu_sync::applied_revision();
-        if rev == self.menu_rev_seen {
+    /// Called at the top of `render`: reload the catalog snapshot when the
+    /// watcher parked a menu revision. Runs inside this view's own render
+    /// pass — one owner, one thread, no re-entrant entity updates. A failed
+    /// read keeps the previous snapshot.
+    fn consume_pending_menu_revision(&mut self) {
+        let Some(rev) = self.pending_menu_rev.take() else {
             return;
-        }
+        };
         self.menu_rev_seen = rev;
         if let Ok(products) = self.repo.products(false, None) {
             self.products = products;
@@ -253,7 +275,6 @@ impl RegisterScreen {
             self.categories = categories;
         }
         self.stock = self.load_stock();
-        cx.notify();
     }
 
     /// Re-read catalog, customers, and stock after a settled sale. A failed
@@ -1000,6 +1021,9 @@ impl RegisterScreen {
 
 impl Render for RegisterScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A menu pull landed while we were idle: reload the snapshot here,
+        // in this view's own render pass (see spawn_menu_watch).
+        self.consume_pending_menu_revision();
         // Customers' "Sell to" hands its pick over through the
         // SelectedCustomer global; consume it before reading the cart.
         self.consume_selected_customer(window, cx);

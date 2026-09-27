@@ -137,11 +137,10 @@ pub fn local_image_path(db_path: &str, image_path: &str) -> Option<PathBuf> {
 pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<MenuApply> {
     let conn = repo.conn();
 
-    // The companion's Menu UI lets a store save a product with an existing
-    // SKU (its upsert keys by id, so the duplicate is invisible there),
-    // while products.sku is UNIQUE here. Dedupe by sku, last-wins — the
-    // newer edit is the companion's intent — or the second row would abort
-    // the whole pull with a constraint error.
+    // Senders may leave two rows sharing one UNIQUE sku (a Menu-UI save
+    // keys by id, so the duplicate is invisible there). Dedupe by sku,
+    // last-wins — the newer edit is the sender's intent — or the second
+    // row would abort the whole pull with a constraint error.
     let mut seen_skus = std::collections::HashSet::new();
     let mut products = Vec::with_capacity(payload.products.len());
     for p in payload.products.iter().rev() {
@@ -150,6 +149,19 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
         }
     }
     products.reverse();
+
+    // Local identity before the transaction: id → sku and sku → id.
+    let (local_by_id, local_by_sku): (HashMap<String, String>, HashMap<String, String>) = {
+        let mut stmt = conn.prepare("SELECT id, sku FROM products")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut by_id = HashMap::new();
+        let mut by_sku = HashMap::new();
+        for (id, sku) in rows.collect::<rusqlite::Result<Vec<_>>>()? {
+            by_id.insert(id.clone(), sku.clone());
+            by_sku.insert(sku, id);
+        }
+        (by_id, by_sku)
+    };
 
     // Previous photo paths, so the caller can fetch exactly what changed.
     let old_paths: HashMap<String, String> = {
@@ -170,10 +182,33 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
         })?;
     }
     for p in &products {
-        // Source of truth: the payload's sku→id assignment wins. A local
-        // row holding this sku under another id (created before the
-        // companion grew the replacement, then left out of the payload)
-        // loses its sku so the UNIQUE constraint never aborts the pull.
+        // Convergence rule: the payload's id is the sender's identity; the
+        // local row owning the same sku is the SAME product when the two
+        // sides seeded independently (companion ids vs cloud ids).
+        //   1. id known locally  → upsert by id; a stray other holder of
+        //      the sku loses it first so UNIQUE can never abort the pull.
+        //   2. else a local row owns the sku → update that row IN PLACE
+        //      (every field except id/sku): the local id survives, so
+        //      sale_lines and stock_moves keep pointing at a live product.
+        //   3. else a brand-new product → insert by id, same stray guard.
+        let known_by_id = local_by_id.contains_key(&p.id);
+        let adopted = local_by_sku.get(&p.sku).filter(|lid| !known_by_id || *lid == &p.id);
+        if let (false, Some(lid)) = (known_by_id, adopted) {
+            tx.execute(
+                "UPDATE products SET name = ?, category = ?, price_minor = ?, cost_minor = ?,
+                   tax_rate_id = ?, track_stock = ?, low_stock_at = ?, archived = ?,
+                   description = ?, prep_notes = ?, allergens = ?, route_kitchen = ?,
+                   image_path = ?
+                 WHERE id = ?",
+                params![
+                    p.name, p.category, p.price_minor, p.cost_minor, p.tax_rate_id,
+                    p.track_stock as i64, p.low_stock_at, p.archived as i64,
+                    p.description, p.prep_notes, p.allergens, p.route_kitchen as i64,
+                    p.image_path, lid
+                ],
+            )?;
+            continue;
+        }
         tx.execute(
             "UPDATE products SET sku = sku || '-replaced-' || id WHERE sku = ?1 AND id != ?2",
             params![p.sku, p.id],
@@ -207,11 +242,17 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
 
     // Files to fetch: anything whose path just moved, plus anything whose
     // local copy is missing (heals failed downloads on the next pull).
+    // Keyed by the row id the payload data actually landed on.
     let db_path = repo.db_path();
     let mut image_files = Vec::new();
     for p in &products {
         let Some(file) = image_file_of(&p.image_path) else { continue };
-        let changed = old_paths.get(&p.id).map(String::as_str).unwrap_or("") != p.image_path;
+        let target = if local_by_id.contains_key(&p.id) {
+            p.id.clone()
+        } else {
+            local_by_sku.get(&p.sku).cloned().unwrap_or_else(|| p.id.clone())
+        };
+        let changed = old_paths.get(&target).map(String::as_str).unwrap_or("") != p.image_path;
         let missing = !local_image_path(db_path, &p.image_path).is_some_and(|path| path.exists());
         if (changed || missing) && !image_files.contains(&file) {
             image_files.push(file);
