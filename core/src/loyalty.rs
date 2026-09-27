@@ -5,12 +5,16 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoyaltyConfig {
     pub enabled: bool,
     /// Spend this many minor units to earn one step.
+    #[serde(alias = "step_minor")]
     pub step_minor: i64,
+    #[serde(alias = "points_per_step")]
     pub points_per_step: i64,
     /// Minor units one point is worth at redemption.
+    #[serde(alias = "point_value_minor")]
     pub point_value_minor: i64,
 }
 

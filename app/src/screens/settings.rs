@@ -79,6 +79,11 @@ pub struct SettingsScreen {
     outbox: Option<Outbox>,
     sync_in_flight: bool,
     sync_message: Option<String>,
+    /// Menu pull: companion endpoint (same outbox meta table), status line,
+    /// and the manual pull's in-flight flag.
+    menu_url: Entity<InputState>,
+    menu_in_flight: bool,
+    menu_message: Option<String>,
 }
 
 impl SettingsScreen {
@@ -134,6 +139,12 @@ impl SettingsScreen {
             .unwrap_or_default();
         let cloud_url = text_input(window, cx, &cloud_url_value, sync::PLACEHOLDER_CLOUD_URL);
         let cloud_token = text_input(window, cx, &cloud_token_value, "Store token");
+        let menu_url_value = outbox
+            .as_ref()
+            .and_then(|o| o.meta_get("companion_url"))
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(crate::menu_sync::default_companion_url);
+        let menu_url = text_input(window, cx, &menu_url_value, crate::menu_sync::DEFAULT_COMPANION_URL);
 
         let mut this = Self {
             repo,
@@ -155,6 +166,9 @@ impl SettingsScreen {
             outbox,
             sync_in_flight: false,
             sync_message: None,
+            menu_url,
+            menu_in_flight: false,
+            menu_message: None,
         };
 
         this._subscriptions.push(cx.subscribe_in(
@@ -190,6 +204,15 @@ impl SettingsScreen {
                 },
             ));
         }
+        this._subscriptions.push(cx.subscribe_in(
+            &this.menu_url.clone(),
+            window,
+            |this, state, event, _window, cx| {
+                if matches!(event, InputEvent::Blur) {
+                    this.save_menu_config(state.entity_id(), cx);
+                }
+            },
+        ));
 
         this.spawn_pending_refresh(cx);
 
@@ -333,6 +356,63 @@ impl SettingsScreen {
                     Ok(outcome) => outcome.summary(),
                     Err(error) => format!("Sync failed: {error}"),
                 });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Blur-commit for the companion URL, persisted in the same outbox
+    /// meta table as the cloud config. Clearing the field falls back to
+    /// `KASEER_COMPANION_URL` (or the loopback default).
+    fn save_menu_config(&mut self, input_id: EntityId, cx: &mut Context<Self>) {
+        if input_id != self.menu_url.entity_id() {
+            return;
+        }
+        let Some(outbox) = &self.outbox else {
+            return;
+        };
+        let value = self.menu_url.read(cx).value().trim().to_string();
+        if outbox.meta_get("companion_url").as_deref() == Some(value.as_str()) {
+            return;
+        }
+        let saved = if value.is_empty() {
+            outbox.meta_delete("companion_url")
+        } else {
+            outbox.meta_set("companion_url", &value)
+        };
+        match saved {
+            Ok(()) => cx.notify(),
+            Err(error) => self.menu_message = Some(format!("Could not save: {error}")),
+        }
+    }
+
+    /// (last pull stamp, last error) straight from the outbox meta.
+    fn menu_status(&self) -> (Option<String>, Option<String>) {
+        let Some(outbox) = &self.outbox else {
+            return (None, None);
+        };
+        (outbox.meta_get("menu_last_sync_at"), outbox.meta_get("menu_last_error"))
+    }
+
+    /// Manual menu pull on the background executor: ignores the revision
+    /// gate, flips the button into its in-flight state, and reports through
+    /// the status line — never a modal or toast.
+    fn pull_menu_now(&mut self, cx: &mut Context<Self>) {
+        if self.menu_in_flight {
+            return;
+        }
+        self.menu_in_flight = true;
+        self.menu_message = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { crate::menu_sync::pull_now() })
+                .await;
+            this.update(cx, |this, cx| {
+                this.menu_in_flight = false;
+                this.menu_message = Some(result);
                 cx.notify();
             })
             .ok();
@@ -767,6 +847,94 @@ impl SettingsScreen {
                             })
                             .disabled(self.sync_in_flight || self.outbox.is_none())
                             .on_click(cx.listener(|this, _, _, cx| this.sync_now(cx))),
+                    ),
+            )
+            .child(self.render_menu_section(cx))
+    }
+
+    /// The menu pull section, inside the sync card: companion endpoint,
+    /// last-pull stamp, and the manual pull. The companion is the menu's
+    /// source of truth; this terminal only polls and converges.
+    fn render_menu_section(&self, cx: &Context<Self>) -> impl IntoElement {
+        let (last_pull, last_error) = self.menu_status();
+        v_flex()
+            .gap_3()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .pt_3()
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("MENU (COMPANION)"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(format!(
+                                "last pull {}",
+                                last_pull
+                                    .as_deref()
+                                    .map(short_time)
+                                    .unwrap_or_else(|| "never".to_string()),
+                            ))),
+                    ),
+            )
+            .when_some(last_error, |section, error| {
+                section.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().danger)
+                        .child(SharedString::from(format!("Last error: {error}"))),
+                )
+            })
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_64()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Menu source (companion)"),
+                    )
+                    .child(Input::new(&self.menu_url)),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .items_center()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(
+                                self.menu_message
+                                    .clone()
+                                    .unwrap_or_else(|| "Polls every 30s; edits from this terminal push back.".to_string()),
+                            )),
+                    )
+                    .child(
+                        Button::new("menu-pull-now")
+                            .label(if self.menu_in_flight {
+                                "Pulling…"
+                            } else {
+                                "Pull menu now"
+                            })
+                            .disabled(self.menu_in_flight || self.outbox.is_none())
+                            .on_click(cx.listener(|this, _, _, cx| this.pull_menu_now(cx))),
                     ),
             )
     }

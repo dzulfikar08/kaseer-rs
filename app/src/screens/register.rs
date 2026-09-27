@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
@@ -26,10 +27,11 @@ use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt,
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::prelude::StyledImage as _;
 use gpui_kit::{
     Anchor, AppContext as _, Context, Entity, EventEmitter, FontWeight, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
+    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
 use super::customers::SelectedCustomer;
 use kaseer_core::cart::{self, Cart, CartTotals, Discount};
@@ -39,6 +41,7 @@ use kaseer_core::escpos::escpos_bytes;
 use kaseer_core::loyalty::{
     LoyaltyConfig, max_redeemable_points, points_earned, redeem_value_minor,
 };
+use kaseer_core::menu;
 use kaseer_core::money;
 use kaseer_core::payments::{self, PaymentState, Tender, TenderMethod};
 use kaseer_core::receipt::{Sale, SaleLine, SaleTender, StoreInfo, render_receipt_text};
@@ -65,6 +68,8 @@ pub struct RegisterScreen {
     customer_select: Entity<SelectState<Vec<CustomerItem>>>,
     pay_dialog: Entity<PayDialog>,
     receipt_dialog: Entity<ReceiptDialog>,
+    /// Last menu-pull revision this snapshot reflects (see spawn_menu_watch).
+    menu_rev_seen: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -115,6 +120,7 @@ impl RegisterScreen {
             customer_select,
             pay_dialog,
             receipt_dialog,
+            menu_rev_seen: crate::menu_sync::applied_revision(),
             _subscriptions: Vec::new(),
         };
 
@@ -152,6 +158,7 @@ impl RegisterScreen {
 
         // The web register autofocuses the scan box.
         screen.query.update(cx, |input, cx| input.focus(window, cx));
+        screen.spawn_menu_watch(cx);
         screen
     }
 
@@ -214,6 +221,39 @@ impl RegisterScreen {
 
     fn load_stock(&self) -> HashMap<String, i64> {
         stock_map(&self.repo, &self.products)
+    }
+
+    /// Menu pull watch: the pull engine writes the ledger on a background
+    /// thread and records the applied revision in a process global; this
+    /// loop notices the move, reloads the catalog snapshot, and repaints.
+    /// Two ticks against a 30s poll keeps a pull on screen well inside one
+    /// poll interval. The loop ends when the screen entity drops.
+    fn spawn_menu_watch(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                if this.update(cx, |this, cx| this.poll_menu_revision(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn poll_menu_revision(&mut self, cx: &mut Context<Self>) {
+        let rev = crate::menu_sync::applied_revision();
+        if rev == self.menu_rev_seen {
+            return;
+        }
+        self.menu_rev_seen = rev;
+        if let Ok(products) = self.repo.products(false, None) {
+            self.products = products;
+        }
+        if let Ok(categories) = self.repo.categories() {
+            self.categories = categories;
+        }
+        self.stock = self.load_stock();
+        cx.notify();
     }
 
     /// Re-read catalog, customers, and stock after a settled sale. A failed
@@ -557,30 +597,18 @@ impl RegisterScreen {
             .get(&product.id)
             .map(|on_hand| format!("{on_hand} in stock"));
         let known = has_knowledge(product);
-        let card = v_flex()
-            .id(SharedString::from(format!("product-{}", product.id)))
-            .cursor_pointer()
-            .min_h(px(86.))
+        // Photo band (the web `.band`): pulled from the companion into the
+        // ledger's images/ dir. An empty path or a not-yet-downloaded file
+        // keeps the text-only card until a later pull lands the file.
+        let photo = menu::local_image_path(self.repo.db_path(), &product.image_path)
+            .filter(|path| path.exists());
+        let body = v_flex()
+            .flex_grow(1.)
             .gap(px(4.))
             .p(px(12.))
             // The web card reserves the corner for the knowledge affordance
             // (`paddingRight: 28`) so long names never run under it.
-            .when(known, |card| card.pr(px(28.)))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
-            .hover(|style| style.border_color(crate::theme::accent_dim()))
-            .on_click(cx.listener({
-                let product_id = product.id.clone();
-                move |this, _, window, cx| {
-                    if let Some(product) =
-                        this.products.iter().find(|p| p.id == product_id).cloned()
-                    {
-                        this.add_product(&product, window, cx);
-                    }
-                }
-            }))
+            .when(known, |body| body.pr(px(28.)))
             .child(
                 div()
                     .text_size(px(13.5))
@@ -609,8 +637,8 @@ impl RegisterScreen {
                                 self.currency,
                             ))),
                     )
-                    .when_some(stock_note, |card, note| {
-                        card.child(
+                    .when_some(stock_note, |body, note| {
+                        body.child(
                             div()
                                 .text_size(px(11.))
                                 .text_color(cx.theme().muted_foreground)
@@ -618,6 +646,39 @@ impl RegisterScreen {
                         )
                     }),
             );
+        let card = v_flex()
+            .id(SharedString::from(format!("product-{}", product.id)))
+            .cursor_pointer()
+            .min_h(px(86.))
+            // The band bleeds to the card edges (web `margin: 0 -12px`):
+            // clip it to the rounded card instead.
+            .overflow_hidden()
+            .rounded(crate::theme::CARD_RADIUS)
+            .bg(cx.theme().secondary)
+            .border_1()
+            .border_color(cx.theme().border)
+            .hover(|style| style.border_color(crate::theme::accent_dim()))
+            .on_click(cx.listener({
+                let product_id = product.id.clone();
+                move |this, _, window, cx| {
+                    if let Some(product) =
+                        this.products.iter().find(|p| p.id == product_id).cloned()
+                    {
+                        this.add_product(&product, window, cx);
+                    }
+                }
+            }))
+            .when_some(photo, |card, path| {
+                card.child(
+                    img(path)
+                        .id(SharedString::from(format!("product-img-{}", product.id)))
+                        .w_full()
+                        .h(px(96.))
+                        .flex_none()
+                        .object_fit(ObjectFit::Cover),
+                )
+            })
+            .child(body);
         if known {
             // The web `.kinfo`: a small corner button floating over the
             // card's top-right, opening a click-away knowledge popover.

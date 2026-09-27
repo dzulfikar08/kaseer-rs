@@ -1,6 +1,7 @@
 //! Kaseer application shell: GPUI Kit bootstrap, theme install, and the
 //! first window.
 
+mod menu_sync;
 mod screens;
 mod shell;
 mod sync_client;
@@ -89,6 +90,10 @@ fn main() {
                     let _ = sync_client::drain_once(false);
                 })
                 .detach();
+
+                // Menu pull: the companion owns the catalog — poll its
+                // revision now and every 30s (see menu_sync).
+                menu_sync::spawn_menu_poll(cx.background_executor().clone());
             })
             .detach();
         });

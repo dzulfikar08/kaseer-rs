@@ -147,6 +147,10 @@ impl KnowledgeScreen {
                 if let Ok(products) = repo_guard(&self.repo).products(false, None) {
                     self.products = products;
                 }
+                // Convergence: push the same patch at the companion so its
+                // next menu pull reads this edit instead of clobbering it
+                // (fire-and-forget; see menu_sync).
+                crate::menu_sync::spawn_knowledge_push(cx, product.id.clone(), patch);
                 window.push_notification(
                     Notification::success(format!("Knowledge saved for {}", product.name)),
                     cx,

@@ -794,6 +794,7 @@ mod tests {
                 prep_notes: String::new(),
                 allergens: String::new(),
                 route_kitchen: false,
+                image_path: String::new(),
             })
             .unwrap();
         ledger
@@ -938,6 +939,7 @@ mod tests {
             prep_notes: String::new(),
             allergens: String::new(),
             route_kitchen: false,
+            image_path: String::new(),
         };
         outbox.enqueue_product(&product).unwrap();
         // Mark it sent.

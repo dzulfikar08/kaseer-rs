@@ -202,7 +202,9 @@ fn migration_v2_to_v3_preserves_rows_and_seeds_knowledge_and_kitchen_tables() {
     kaseer_core::db::migrate(&conn).unwrap();
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 3);
+    // migrate() always walks to the latest step (v4 today); this test's
+    // subject is what the v3 step did to these rows on the way.
+    assert_eq!(version, 4);
 
     // Both pre-existing rows survive untouched apart from the new columns.
     let (n, non_seeded): (i64, String) = conn
@@ -308,4 +310,146 @@ fn update_knowledge_merges_the_patch_and_unknown_ids_error() {
 
     let unknown = repo.update_knowledge("no-such-id", &KnowledgePatch::default());
     assert!(matches!(unknown, Err(RepoError::NotFound(_))));
+}
+
+/// A v3-shaped ledger (the catalog as v3 left it: knowledge columns, no
+/// photo path) with two rows — one seeded-SKU, one foreign — so the v4
+/// step must alter the table without touching the rows.
+fn v3_fixture_conn(dir: &tempfile::TempDir) -> rusqlite::Connection {
+    let path = dir.path().join("v3-ledger.db");
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE products (
+           id TEXT PRIMARY KEY,
+           sku TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL,
+           category TEXT NOT NULL DEFAULT '',
+           price_minor INTEGER NOT NULL,
+           cost_minor INTEGER NOT NULL DEFAULT 0,
+           tax_rate_id TEXT,
+           track_stock INTEGER NOT NULL DEFAULT 1,
+           low_stock_at INTEGER NOT NULL DEFAULT 0,
+           archived INTEGER NOT NULL DEFAULT 0,
+           description TEXT NOT NULL DEFAULT '',
+           prep_notes TEXT NOT NULL DEFAULT '',
+           allergens TEXT NOT NULL DEFAULT '',
+           route_kitchen INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT INTO products (id, sku, name, category, price_minor, description, route_kitchen) VALUES
+           ('p-americano', '8991002100028', 'Americano', 'Coffee', 15000, 'Double shot of espresso lengthened with hot water. Served black.', 1),
+           ('p-rice', '9999999999999', 'Not Seeded', 'Food', 12000, '', 0);
+         PRAGMA user_version = 3;",
+    )
+    .unwrap();
+    conn
+}
+
+#[test]
+fn migration_v3_to_v4_preserves_rows_and_adds_image_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("v3-ledger.db");
+    {
+        let conn = v3_fixture_conn(&dir);
+        kaseer_core::db::migrate(&conn).unwrap();
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 4);
+
+        // Both pre-existing rows survive with knowledge intact.
+        let (n, description, routed): (i64, String, i64) = conn
+            .query_row(
+                "SELECT COUNT(*),
+                        COALESCE((SELECT description FROM products WHERE sku = '8991002100028'), 'missing'),
+                        COALESCE((SELECT route_kitchen FROM products WHERE sku = '8991002100028'), -1)
+                 FROM products",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(
+            description,
+            "Double shot of espresso lengthened with hot water. Served black."
+        );
+        assert_eq!(routed, 1);
+    }
+
+    let repo = open_repo(db_path.to_str().unwrap()).unwrap();
+    let products = repo.products(true, None).unwrap();
+    assert_eq!(products.len(), 2);
+    for p in &products {
+        assert_eq!(p.image_path, "", "v4 must default every image_path to ''");
+    }
+}
+
+#[test]
+fn fresh_v4_ledger_seeds_products_with_empty_image_paths() {
+    let repo = open_repo(":memory:").unwrap();
+    let products = repo.products(true, None).unwrap();
+    assert_eq!(products.len(), 24);
+    assert!(
+        products.iter().all(|p| p.image_path.is_empty()),
+        "a fresh terminal ledger has no photos until the first menu pull"
+    );
+
+    // The full v4 column set round-trips through upsert_product.
+    let mut p = products[0].clone();
+    p.image_path = "images/abc123.jpg".into();
+    let stored = repo.upsert_product(&p).unwrap();
+    assert_eq!(stored.image_path, "images/abc123.jpg");
+    assert_eq!(repo.product_by_id(&p.id).unwrap().unwrap().image_path, "images/abc123.jpg");
+}
+
+#[test]
+fn settings_round_trip_the_companions_camelcase_json() {
+    let repo = open_repo(":memory:").unwrap();
+
+    // A web companion-seeded settings row: camelCase loyalty keys and a
+    // config_json carrying the companion's menuRev.
+    repo.conn()
+        .execute(
+            "UPDATE settings SET loyalty_json = ?1, config_json = ?2 WHERE id = 1",
+            rusqlite::params![
+                r#"{"enabled":true,"stepMinor":10000,"pointsPerStep":2,"pointValueMinor":150}"#,
+                r#"{"lostAfterDays":45,"menuRev":7}"#
+            ],
+        )
+        .unwrap();
+    let settings = repo.settings().unwrap();
+    assert!(settings.loyalty.enabled);
+    assert_eq!(settings.loyalty.step_minor, 10_000);
+    assert_eq!(settings.loyalty.points_per_step, 2);
+    assert_eq!(settings.loyalty.point_value_minor, 150);
+    assert_eq!(settings.config.lost_after_days, 45);
+
+    // Legacy kiosk-written snake_case ledgers stay readable.
+    repo.conn()
+        .execute(
+            "UPDATE settings SET loyalty_json = ?1 WHERE id = 1",
+            rusqlite::params![r#"{"enabled":false,"step_minor":5000,"points_per_step":1,"point_value_minor":50}"#],
+        )
+        .unwrap();
+    let legacy = repo.settings().unwrap().loyalty;
+    assert!(!legacy.enabled);
+    assert_eq!(legacy.step_minor, 5_000);
+
+    // A kiosk settings save writes the camelCase shape the web parses.
+    let mut next = settings.clone();
+    next.loyalty = kaseer_core::loyalty::LoyaltyConfig {
+        enabled: true,
+        step_minor: 20_000,
+        points_per_step: 3,
+        point_value_minor: 200,
+    };
+    repo.update_settings(&next).unwrap();
+    let (loyalty_json, config_json): (String, String) = repo
+        .conn()
+        .query_row("SELECT loyalty_json, config_json FROM settings WHERE id = 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert!(loyalty_json.contains("\"stepMinor\":20000"), "{loyalty_json}");
+    assert!(!loyalty_json.contains("step_minor"), "{loyalty_json}");
+    let web_view: serde_json::Value = serde_json::from_str(&config_json).unwrap();
+    assert_eq!(web_view["lostAfterDays"], 45, "{config_json}");
 }

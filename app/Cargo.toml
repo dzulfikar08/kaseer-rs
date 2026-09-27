@@ -9,3 +9,7 @@ kaseer-core = { path = "../core" }
 serde_json = "1"
 # Cloud sync transport: rustls (no OpenSSL), JSON responses via bytes.
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+
+[dev-dependencies]
+tempfile = "3"
+parking_lot = "0.12"

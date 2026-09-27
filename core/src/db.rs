@@ -199,6 +199,18 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch("PRAGMA user_version = 3;")?;
         tx.commit()?;
     }
+    if version < 4 {
+        let tx = conn.unchecked_transaction()?;
+        // Phase 4 (menu pull): register card photos. The ALTER is ported
+        // verbatim from kaseer-web's v4 — both apps open the same ledger
+        // file. The web's step also backfills stock photos from its own
+        // data dir; the terminal skips that on purpose: photos arrive over
+        // the wire via the menu pull, which downloads the companion's
+        // image files into the ledger's images/ directory.
+        conn.execute_batch("ALTER TABLE products ADD COLUMN image_path TEXT NOT NULL DEFAULT '';")?;
+        conn.execute_batch("PRAGMA user_version = 4;")?;
+        tx.commit()?;
+    }
     Ok(())
 }
 

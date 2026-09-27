@@ -17,6 +17,7 @@ pub mod escpos;
 pub mod insights;
 pub mod inventory;
 pub mod loyalty;
+pub mod menu;
 pub mod money;
 pub mod opportunities;
 pub mod payments;

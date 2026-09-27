@@ -36,9 +36,13 @@ pub enum RepoError {
 pub type Result<T, E = RepoError> = std::result::Result<T, E>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StoreConfig {
     /// Customer is 'lost' after this many days without a purchase (Phase 2 definition).
-    #[serde(default = "default_lost_after_days")]
+    /// The companion stores this file camelCase (`lostAfterDays`, plus its
+    /// own `menuRev` — ignored here); the alias keeps old kiosk-written
+    /// snake_case ledgers readable.
+    #[serde(default = "default_lost_after_days", alias = "lost_after_days")]
     pub lost_after_days: i64,
 }
 
@@ -79,6 +83,10 @@ pub struct Product {
     pub prep_notes: String,
     pub allergens: String,
     pub route_kitchen: bool,
+    /// Repo-relative photo path (`images/<file>`), written by the menu
+    /// pull; the file itself lands in the ledger's images/ directory
+    /// (schema v4, shared with the web companion).
+    pub image_path: String,
 }
 
 /// Editable slice of [`Product`] knowledge; `None` keys keep their value.
@@ -208,7 +216,7 @@ impl Repo {
 
     // ── Catalog ───────────────────────────────────────────────────────────
 
-    const PRODUCT_COLS: &'static str = "id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived, description, prep_notes, allergens, route_kitchen";
+    const PRODUCT_COLS: &'static str = "id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived, description, prep_notes, allergens, route_kitchen, image_path";
 
     pub fn products(&self, include_archived: bool, query: Option<&str>) -> Result<Vec<Product>> {
         let query = query.map(str::trim).filter(|q| !q.is_empty()).map(str::to_lowercase);
@@ -243,14 +251,14 @@ impl Repo {
     pub fn upsert_product(&self, p: &Product) -> Result<Product> {
         self.conn.execute(
             "INSERT INTO products (id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived,
-               description, prep_notes, allergens, route_kitchen)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               description, prep_notes, allergens, route_kitchen, image_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET sku = excluded.sku, name = excluded.name, category = excluded.category,
                price_minor = excluded.price_minor, cost_minor = excluded.cost_minor, tax_rate_id = excluded.tax_rate_id,
                track_stock = excluded.track_stock, low_stock_at = excluded.low_stock_at, archived = excluded.archived,
                description = excluded.description, prep_notes = excluded.prep_notes, allergens = excluded.allergens,
-               route_kitchen = excluded.route_kitchen",
-            params![p.id, p.sku, p.name, p.category, p.price_minor, p.cost_minor, p.tax_rate_id, p.track_stock as i64, p.low_stock_at, p.archived as i64, p.description, p.prep_notes, p.allergens, p.route_kitchen as i64],
+               route_kitchen = excluded.route_kitchen, image_path = excluded.image_path",
+            params![p.id, p.sku, p.name, p.category, p.price_minor, p.cost_minor, p.tax_rate_id, p.track_stock as i64, p.low_stock_at, p.archived as i64, p.description, p.prep_notes, p.allergens, p.route_kitchen as i64, p.image_path],
         )?;
         Ok(p.clone())
     }
@@ -799,6 +807,7 @@ fn row_to_product(row: &rusqlite::Row) -> rusqlite::Result<Product> {
         prep_notes: row.get(11)?,
         allergens: row.get(12)?,
         route_kitchen: row.get::<_, i64>(13)? == 1,
+        image_path: row.get(14)?,
     })
 }
 
