@@ -101,15 +101,17 @@ impl InventoryScreen {
 
     // UI-integration readers, so tests assert through the view instead of
     // reaching into private state (the recipe's accessor pattern).
-
+    #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn tracked_count(&self) -> usize {
         self.products.len()
     }
 
+    #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn stock_on_hand(&self, product_id: &str) -> Option<i64> {
         self.stock.get(product_id).copied()
     }
 
+    #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn stock_value_minor(&self) -> i64 {
         self.products.iter().map(|p| self.on_hand(p) * p.cost_minor).sum()
     }

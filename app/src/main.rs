@@ -27,6 +27,12 @@ fn main() {
                     origin: point(px(0.), px(0.)),
                     size: size(px(1440.), px(900.)),
                 })),
+                // The register cart panel (lines + totals + pay) needs
+                // roughly 700px of column height; below that the flex
+                // boxes collapse and hitboxes start overlapping. Hold a
+                // floor instead of shipping a window that can be resized
+                // into a broken register.
+                window_min_size: Some(size(px(1200.), px(760.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Kaseer".into()),
                     ..Default::default()

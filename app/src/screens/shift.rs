@@ -129,15 +129,17 @@ impl ShiftScreen {
 
     // UI-integration readers, so tests assert through the view instead of
     // reaching into private state (the recipe's accessor pattern).
-
+    #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn is_shift_open(&self) -> bool {
         self.active.is_some()
     }
 
+    #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn expected_cash_minor(&self) -> Option<i64> {
         self.active.as_ref().map(|s| s.expected_cash_minor)
     }
 
+    #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn sales_this_shift(&self) -> Option<usize> {
         self.active.as_ref().map(|s| s.totals.sales_count)
     }

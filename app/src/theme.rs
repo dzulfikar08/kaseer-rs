@@ -56,6 +56,15 @@ pub fn install(cx: &mut App) {
         theme.primary_foreground = token(CHARCOAL);
         theme.primary_hover = token(AMBER).lighten(0.08);
         theme.primary_active = token(AMBER).darken(0.08);
+        // `apply_config` only falls back `button_primary` → `primary` while
+        // loading a theme config; recoloring the role afterwards does not
+        // revisit it. Button reads `tokens.button_primary`, which is copied
+        // from this role below — leave it unset and the default dark
+        // palette's near-white survives into the Pay button.
+        theme.button_primary = token(AMBER);
+        theme.button_primary_foreground = token(CHARCOAL);
+        theme.button_primary_hover = token(AMBER).lighten(0.08);
+        theme.button_primary_active = token(AMBER).darken(0.08);
         theme.accent = token(AMBER);
         theme.accent_foreground = token(CHARCOAL);
         theme.link = token(AMBER);

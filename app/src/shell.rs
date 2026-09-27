@@ -225,10 +225,10 @@ impl AppShell {
     fn navigate(&mut self, item: NavItem, window: &mut Window, cx: &mut Context<Self>) {
         if self.active != item {
             self.active = item;
-            if item == NavItem::Register {
-                if let Some(register) = self.screens.register.as_ref() {
-                    register.update(cx, |r, cx| r.activate(window, cx));
-                }
+            if item == NavItem::Register
+                && let Some(register) = self.screens.register.as_ref()
+            {
+                register.update(cx, |r, cx| r.activate(window, cx));
             }
             cx.notify();
         }

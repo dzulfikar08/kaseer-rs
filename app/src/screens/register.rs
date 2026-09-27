@@ -299,7 +299,7 @@ impl RegisterScreen {
             .map(|value| (value * 100.0).round() as i64)
             .unwrap_or(0);
         self.cart =
-            cart::set_order_discount(&self.cart, (bps > 0).then(|| Discount::Percent { bps }));
+            cart::set_order_discount(&self.cart, (bps > 0).then_some(Discount::Percent { bps }));
         cx.notify();
     }
 
@@ -442,10 +442,10 @@ impl RegisterScreen {
         // Stock movements for tracked products (tracked items sell whole).
         let mut tracked: HashMap<String, f64> = HashMap::new();
         for line in &self.cart.lines {
-            if let Some(product) = self.products.iter().find(|p| p.id == line.product_id) {
-                if product.track_stock {
-                    *tracked.entry(line.product_id.clone()).or_insert(0.0) += line.qty.round();
-                }
+            if let Some(product) = self.products.iter().find(|p| p.id == line.product_id)
+                && product.track_stock
+            {
+                *tracked.entry(line.product_id.clone()).or_insert(0.0) += line.qty.round();
             }
         }
 
@@ -607,6 +607,11 @@ impl RegisterScreen {
     ) -> impl IntoElement {
         v_flex()
             .flex_grow(1.)
+            // Let the panel shrink with the window row instead of sizing to
+            // its content: unconstrained, the lines list keeps its content
+            // height and its scroll hitbox spills over totals/pay.
+            .min_h_0()
+            .overflow_hidden()
             .max_w(px(420.))
             .min_w_0()
             .gap_2()
@@ -904,7 +909,11 @@ impl EventEmitter<PayEvent> for PayDialog {}
 
 #[derive(Clone)]
 struct CustomerSnapshot {
+    // Kept so the paid receipt can address the buyer; only `points`
+    // feeds the pay dialog today.
+    #[allow(dead_code)]
     id: String,
+    #[allow(dead_code)]
     name: String,
     points: i64,
 }
