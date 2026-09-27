@@ -11,56 +11,56 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, Root, Selectable as _, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Icon, Root, Sizable as _};
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Window, div, px,
+    AnyElement, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Window, div, px,
 };
 
 use crate::screens::{
-    CampaignsScreen, CopilotScreen, CustomersScreen, DashboardScreen, InventoryScreen,
-    RegisterScreen, ReportsScreen, SettingsScreen, ShiftScreen,
+    CustomersScreen, InventoryScreen, RegisterScreen, ReportsScreen, SettingsScreen, ShiftScreen,
 };
 
 /// One navigation entry: the shell's screen identity.
+///
+/// Dashboard, Campaigns, and Copilot moved to the web companion; their
+/// screen modules are compiled out of this app (the source files stay only
+/// until the next crew deletes them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NavItem {
     Register,
     Shift,
-    Dashboard,
-    Reports,
     Inventory,
     Customers,
-    Campaigns,
-    Copilot,
+    Reports,
     Settings,
 }
 
-/// Rail order mirrors kaseer-web's `App.tsx` NAV.
+/// Rail order after the web-companion split. The rail renders two extra
+/// reserved slots after these (see `FUTURE_SLOTS`) for the screens queued
+/// to land here next.
 const NAV_ITEMS: &[NavItem] = &[
     NavItem::Register,
     NavItem::Shift,
-    NavItem::Dashboard,
-    NavItem::Reports,
     NavItem::Inventory,
     NavItem::Customers,
-    NavItem::Campaigns,
-    NavItem::Copilot,
+    NavItem::Reports,
     NavItem::Settings,
 ];
+
+/// Inert rail placeholders under the live items: two screens are queued to
+/// move back from the web companion, and the slots hold their place.
+const FUTURE_SLOT_LABELS: &[&str] = &["Soon", "Soon"];
 
 impl NavItem {
     fn label(self) -> &'static str {
         match self {
             NavItem::Register => "Register",
             NavItem::Shift => "Shift",
-            NavItem::Dashboard => "Dashboard",
-            NavItem::Reports => "Reports",
             NavItem::Inventory => "Inventory",
             NavItem::Customers => "Customers",
-            NavItem::Campaigns => "Campaigns",
-            NavItem::Copilot => "Copilot",
+            NavItem::Reports => "Reports",
             NavItem::Settings => "Settings",
         }
     }
@@ -69,12 +69,9 @@ impl NavItem {
         match self {
             NavItem::Register => IconName::Store,
             NavItem::Shift => IconName::Timer,
-            NavItem::Dashboard => IconName::LayoutDashboard,
-            NavItem::Reports => IconName::ChartLine,
             NavItem::Inventory => IconName::Package,
             NavItem::Customers => IconName::Users,
-            NavItem::Campaigns => IconName::Megaphone,
-            NavItem::Copilot => IconName::Bot,
+            NavItem::Reports => IconName::ChartLine,
             NavItem::Settings => IconName::Settings,
         }
     }
@@ -84,12 +81,9 @@ impl NavItem {
 struct ScreenSlots {
     register: Option<Entity<RegisterScreen>>,
     shift: Option<Entity<ShiftScreen>>,
-    dashboard: Option<Entity<DashboardScreen>>,
-    reports: Option<Entity<ReportsScreen>>,
     inventory: Option<Entity<InventoryScreen>>,
     customers: Option<Entity<CustomersScreen>>,
-    campaigns: Option<Entity<CampaignsScreen>>,
-    copilot: Option<Entity<CopilotScreen>>,
+    reports: Option<Entity<ReportsScreen>>,
     settings: Option<Entity<SettingsScreen>>,
 }
 
@@ -98,12 +92,9 @@ impl ScreenSlots {
         Self {
             register: None,
             shift: None,
-            dashboard: None,
-            reports: None,
             inventory: None,
             customers: None,
-            campaigns: None,
-            copilot: None,
+            reports: None,
             settings: None,
         }
     }
@@ -139,18 +130,6 @@ impl AppShell {
                 .get_or_insert_with(|| cx.new(|cx| ShiftScreen::new(window, cx)))
                 .clone()
                 .into_any_element(),
-            NavItem::Dashboard => self
-                .screens
-                .dashboard
-                .get_or_insert_with(|| cx.new(|cx| DashboardScreen::new(window, cx)))
-                .clone()
-                .into_any_element(),
-            NavItem::Reports => self
-                .screens
-                .reports
-                .get_or_insert_with(|| cx.new(|cx| ReportsScreen::new(window, cx)))
-                .clone()
-                .into_any_element(),
             NavItem::Inventory => self
                 .screens
                 .inventory
@@ -163,16 +142,10 @@ impl AppShell {
                 .get_or_insert_with(|| cx.new(|cx| CustomersScreen::new(window, cx)))
                 .clone()
                 .into_any_element(),
-            NavItem::Campaigns => self
+            NavItem::Reports => self
                 .screens
-                .campaigns
-                .get_or_insert_with(|| cx.new(|cx| CampaignsScreen::new(window, cx)))
-                .clone()
-                .into_any_element(),
-            NavItem::Copilot => self
-                .screens
-                .copilot
-                .get_or_insert_with(|| cx.new(|cx| CopilotScreen::new(window, cx)))
+                .reports
+                .get_or_insert_with(|| cx.new(|cx| ReportsScreen::new(window, cx)))
                 .clone()
                 .into_any_element(),
             NavItem::Settings => self
@@ -186,36 +159,83 @@ impl AppShell {
 
     fn render_nav(&self, cx: &Context<Self>) -> impl IntoElement {
         let active = self.active;
+        // The web `.rail`: a 76px strip, items 64px wide with the icon
+        // stacked over a 10.5px label; the active item sits on surface-2 in
+        // accent. No brand block — the web rail starts straight in.
         v_flex()
             .id("nav-rail")
-            .w(px(168.))
+            .w(px(76.))
             .h_full()
             .flex_shrink_0()
-            .gap_1()
-            .p_2()
+            .items_center()
+            .pt(px(10.))
+            .gap(px(2.))
             .bg(cx.theme().sidebar)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
-            .child(
-                div()
-                    .px_2()
-                    .pb_2()
-                    .text_size(px(18.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().sidebar_primary)
-                    .child("Kaseer"),
-            )
             .children(NAV_ITEMS.iter().map(|item| {
                 let item = *item;
-                Button::new(SharedString::from(format!("nav-{}", item.label().to_lowercase())))
-                    .label(item.label())
-                    .icon(item.icon())
-                    .ghost()
-                    .small()
-                    .selected(item == active)
+                let selected = item == active;
+                let (fg, bg) = if selected {
+                    (
+                        cx.theme().sidebar_accent_foreground,
+                        cx.theme().sidebar_accent,
+                    )
+                } else {
+                    (cx.theme().sidebar_foreground, gpui_kit::transparent_black())
+                };
+                v_flex()
+                    .id(SharedString::from(format!("nav-{}", item.label().to_lowercase())))
+                    .cursor_pointer()
+                    .w(px(64.))
+                    .pt(px(8.))
+                    .pb(px(6.))
+                    .items_center()
+                    .gap(px(2.))
+                    .rounded(px(10.))
+                    .bg(bg)
+                    .text_color(fg)
+                    .hover(|style| {
+                        if selected {
+                            style
+                        } else {
+                            style.text_color(cx.theme().foreground)
+                        }
+                    })
                     .on_click(cx.listener(move |shell, _, window, cx| {
                         shell.navigate(item, window, cx);
                     }))
+                    .child(
+                        Icon::new(item.icon())
+                            .with_size(px(17.))
+                            .text_color(fg),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .child(item.label()),
+                    )
+            }))
+            // Two reserved rail slots for the screens queued to land here
+            // from the web companion. Inert until a real screen owns them:
+            // no id, no click handler, dimmed so they read as roadmap, not
+            // as broken navigation.
+            .children(FUTURE_SLOT_LABELS.iter().map(|label| {
+                v_flex()
+                    .w(px(64.))
+                    .pt(px(8.))
+                    .pb(px(6.))
+                    .items_center()
+                    .gap(px(2.))
+                    .rounded(px(10.))
+                    .opacity(0.45)
+                    .text_color(cx.theme().sidebar_foreground)
+                    .child(
+                        Icon::new(IconName::Plus)
+                            .with_size(px(17.))
+                            .text_color(cx.theme().sidebar_foreground),
+                    )
+                    .child(div().text_size(px(10.5)).child(*label))
             }))
     }
 

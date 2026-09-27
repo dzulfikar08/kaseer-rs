@@ -219,14 +219,14 @@ impl ShiftScreen {
                     .gap_4()
                     .p_8()
                     .m_6()
-                    .rounded(cx.theme().radius)
+                    .rounded(crate::theme::CARD_RADIUS)
                     .bg(cx.theme().secondary)
                     .border_1()
                     .border_color(cx.theme().border)
                     .child(
                         div()
                             .text_xl()
-                            .font_weight(FontWeight::MEDIUM)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .child(SharedString::from("Open shift")),
                     )
                     .child(
@@ -283,7 +283,7 @@ impl ShiftScreen {
                         h_flex()
                             .gap_2()
                             .text_xl()
-                            .font_weight(FontWeight::MEDIUM)
+                            .font_weight(FontWeight::SEMIBOLD)
                             .child(SharedString::from("Shift"))
                             .child(
                                 div()
@@ -358,22 +358,22 @@ impl ShiftScreen {
             .flex_1()
             .min_w(px(180.))
             .gap_1()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(11.))
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(label.to_uppercase())),
             )
             .child(
                 div()
-                    .text_xl()
-                    .font_weight(FontWeight::MEDIUM)
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(px(22.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_features(crate::theme::tabular())
                     .text_color(value_color)
                     .child(SharedString::from(value)),
             )
@@ -449,12 +449,14 @@ impl ShiftScreen {
         // every frame and must only re-wrap it, or the inputs reset per frame.
         let view = cx.new(|cx| CloseShiftDialog::new(expected, cur, window, cx));
 
+        let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
             let ok_view = view.clone();
             let ok_screen = screen.clone();
             dialog
                 .title("Close shift — count the drawer")
                 .w(px(560.))
+                .bg(surface)
                 .child(view.clone())
                 .footer(
                     DialogFooter::new()
@@ -552,7 +554,7 @@ impl CloseShiftDialog {
                     .w_24()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_features(crate::theme::tabular())
                     .child(SharedString::from(money_str(minor, self.cur))),
             )
             .child(Input::new(input).id(SharedString::from(format!("shift-count-{minor}"))).small().w_full())
@@ -562,7 +564,7 @@ impl CloseShiftDialog {
                     .text_right()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_features(crate::theme::tabular())
                     .child(SharedString::from(money_str(minor * count, self.cur))),
             )
     }
@@ -618,7 +620,7 @@ impl Render for CloseShiftDialog {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .font_family(cx.theme().mono_font_family.clone())
+                            .font_features(crate::theme::tabular())
                             .text_color(variance_color)
                             .child(SharedString::from(variance_text)),
                     ),
@@ -628,22 +630,24 @@ impl Render for CloseShiftDialog {
 
 // ── Shared bits ─────────────────────────────────────────────────────────
 
-/// The Kaseer panel motif: secondary surface, 1px border, radius token.
+/// The Kaseer panel motif: surface fill, 1px border, 12px radius, and the
+/// web `.panel h3` kicker for a title.
 fn panel(cx: &App, title: &str) -> Div {
     v_flex()
         .flex_1()
         .min_w(px(280.))
         .gap_2()
-        .p_4()
-        .rounded(cx.theme().radius)
+        .p(px(14.))
+        .rounded(crate::theme::CARD_RADIUS)
         .bg(cx.theme().secondary)
         .border_1()
         .border_color(cx.theme().border)
         .child(
             div()
-                .text_base()
-                .font_weight(FontWeight::MEDIUM)
-                .child(SharedString::from(title.to_string())),
+                .text_size(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(title.to_uppercase())),
         )
 }
 
@@ -661,7 +665,7 @@ fn ledger_row(cx: &App, label: SharedString, value: SharedString, strong: bool) 
             div()
                 .text_sm()
                 .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
-                .font_family(cx.theme().mono_font_family.clone())
+                .font_features(crate::theme::tabular())
                 .child(value),
         )
 }

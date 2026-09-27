@@ -14,8 +14,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, Global, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Subscription, Window, div,
+    App, AppContext as _, Context, Entity, FontWeight, Global, IntoElement, ParentElement as _,
+    Render, SharedString, Styled as _, Subscription, Window, div, px,
 };
 use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::repos::{Customer, Repo};
@@ -194,10 +194,12 @@ impl CustomersScreen {
         let this = cx.entity().downgrade();
         let name = self.name_input.clone();
         let phone = self.phone_input.clone();
+        let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
             let this = this.clone();
             dialog
                 .title("Add customer")
+                .bg(surface)
                 .child(
                     v_flex()
                         .gap_3()
@@ -271,8 +273,8 @@ impl CustomersScreen {
             .flex_1()
             .min_h_0()
             .gap_3()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
@@ -285,7 +287,7 @@ impl CustomersScreen {
                     .child(
                         div()
                             .text_lg()
-                            .font_medium()
+                            .font_weight(FontWeight::SEMIBOLD)
                             .child(SharedString::from(format!(
                                 "Customers — {}",
                                 filtered.len()
@@ -380,6 +382,7 @@ impl CustomersScreen {
                                         .min_w_12()
                                         .text_center()
                                         .font_medium()
+                                        .font_features(crate::theme::tabular())
                                         .child(SharedString::from(customer.points.to_string())),
                                 )
                                 .child(
@@ -420,10 +423,10 @@ impl CustomersScreen {
                     .child(
                         TableHeader::new().child(
                             TableRow::new()
-                                .child(TableHead::new().child("Name"))
-                                .child(TableHead::new().child("Phone"))
-                                .child(TableHead::new().child("Points"))
-                                .child(TableHead::new().child("Created"))
+                                .child(TableHead::new().text_size(px(11.)).child("NAME"))
+                                .child(TableHead::new().text_size(px(11.)).child("PHONE"))
+                                .child(TableHead::new().text_size(px(11.)).child("POINTS"))
+                                .child(TableHead::new().text_size(px(11.)).child("CREATED"))
                                 .child(TableHead::new()),
                         ),
                     )

@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::scroll::{Scrollable, ScrollableElement as _};
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement as _, Render,
@@ -170,16 +170,18 @@ impl ReportsScreen {
                 h_flex()
                     .gap_1()
                     .children(DAY_OPTIONS.map(|days| {
-                        Button::new(SharedString::from(format!("day-{days}")))
-                            .small()
-                            .selected(self.days == days)
-                            .label(format!("{days}d"))
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                        super::chip(
+                            cx,
+                            SharedString::from(format!("day-{days}")),
+                            SharedString::from(format!("{days}d")),
+                            self.days == days,
+                            cx.listener(move |this, _, _, cx| {
                                 if this.days != days {
                                     this.days = days;
                                     this.load(cx);
                                 }
-                            }))
+                            }),
+                        )
                     }))
                     .child(
                         Button::new("refresh")
@@ -244,8 +246,8 @@ impl ReportsScreen {
         h_flex()
             .flex_wrap()
             .gap_4()
-            .p_3()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
@@ -393,8 +395,8 @@ impl ReportsScreen {
     fn panel(&self, cx: &Context<Self>) -> Div {
         v_flex()
             .gap_2()
-            .p_3()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
@@ -404,24 +406,24 @@ impl ReportsScreen {
         kicker(cx, title)
     }
 
-    /// An uppercase label over a large value; money values use the mono
-    /// face like the ledger line on the register.
+    /// An uppercase 11px label over a 22px tabular value; the web
+    /// `.stat .label` / `.stat .value` treatment.
     fn stat(&self, cx: &Context<Self>, label: &str, value: String, is_money: bool) -> Div {
         v_flex()
             .min_w(rems(8.75))
             .gap_0p5()
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(11.))
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(label.to_uppercase())),
             )
             .child(
                 div()
-                    .text_xl()
+                    .text_size(px(22.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .when(is_money, |value| {
-                        value.font_family(cx.theme().mono_font_family.clone())
+                        value.font_features(crate::theme::tabular())
                     })
                     .child(SharedString::from(value)),
             )
@@ -502,7 +504,7 @@ fn iso(at: DateTime<Utc>) -> String {
 /// Small uppercase section label, matching the web `.panel h3`.
 fn kicker(cx: &Context<ReportsScreen>, title: &str) -> Div {
     div()
-        .text_xs()
+        .text_size(px(12.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(cx.theme().muted_foreground)
         .child(SharedString::from(title.to_uppercase()))
@@ -535,7 +537,7 @@ fn table_row(cx: &Context<ReportsScreen>) -> Div {
 
 fn header_cell(cx: &Context<ReportsScreen>, width: Option<f32>, label: &str) -> Div {
     let base = div()
-        .text_xs()
+        .text_size(px(11.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(cx.theme().muted_foreground);
     sized(base, width).child(SharedString::from(label.to_uppercase()))
@@ -545,7 +547,7 @@ fn cell(cx: &Context<ReportsScreen>, width: Option<f32>, text: &str, mono: bool)
     let base = div()
         .text_sm()
         .text_color(cx.theme().foreground)
-        .when(mono, |c| c.font_family(cx.theme().mono_font_family.clone()));
+        .when(mono, |c| c.font_features(crate::theme::tabular()));
     sized(base, width).child(SharedString::from(text.to_string()))
 }
 
@@ -563,12 +565,12 @@ fn mix_chip(cx: &Context<ReportsScreen>, text: &str) -> Div {
     div()
         .px_2()
         .py_0p5()
-        .rounded(px(8.))
+        .rounded(px(999.))
         .bg(cx.theme().muted)
         .border_1()
         .border_color(cx.theme().border)
-        .text_xs()
-        .font_family(cx.theme().mono_font_family.clone())
+        .text_size(px(11.))
+        .font_features(crate::theme::tabular())
         .text_color(cx.theme().muted_foreground)
         .child(SharedString::from(text.to_string()))
 }

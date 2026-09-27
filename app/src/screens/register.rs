@@ -22,14 +22,13 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::searchable_list::SearchableListItem;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Icon, IndexPath, Selectable as _, Sizable as _,
-    WindowExt,
+    ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, EventEmitter, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window, div, px,
+    AppContext as _, Context, Entity, EventEmitter, FontWeight, Hsla, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Window, div, px,
 };
 use super::customers::SelectedCustomer;
 use kaseer_core::cart::{self, Cart, CartTotals, Discount};
@@ -325,8 +324,13 @@ impl RegisterScreen {
             dialog.reset(total_minor, customer, loyalty, currency, window, cx)
         });
         let pay = self.pay_dialog.clone();
+        let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title("Payment").w(px(640.)).child(pay.clone())
+            dialog
+                .title("Payment")
+                .w(px(640.))
+                .bg(surface)
+                .child(pay.clone())
         });
     }
 
@@ -470,10 +474,12 @@ impl RegisterScreen {
         self.receipt_dialog
             .update(cx, |dialog, _| dialog.show(sale, store));
         let receipt = self.receipt_dialog.clone();
+        let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
             dialog
                 .title(SharedString::from(format!("Receipt {number}")))
                 .w(px(560.))
+                .bg(surface)
                 .child(receipt.clone())
         });
     }
@@ -491,28 +497,28 @@ impl RegisterScreen {
     }
 
     fn render_category_chips(&self, cx: &Context<Self>) -> impl IntoElement {
-        let mut row = h_flex().gap_1().flex_wrap().flex_none();
-        row = row.child(
-            Button::new("cat-all")
-                .small()
-                .selected(self.category.is_none())
-                .label("All")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.category = None;
-                    cx.notify();
-                })),
-        );
+        let mut row = h_flex().gap(px(8.)).flex_wrap().flex_none();
+        row = row.child(super::chip(
+            cx,
+            "cat-all",
+            "All",
+            self.category.is_none(),
+            cx.listener(|this, _, _, cx| {
+                this.category = None;
+                cx.notify();
+            }),
+        ));
         for name in self.categories.clone() {
-            row = row.child(
-                Button::new(SharedString::from(format!("cat-{name}")))
-                    .small()
-                    .selected(self.category.as_deref() == Some(name.as_str()))
-                    .label(SharedString::from(name.clone()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.category = Some(name.clone());
-                        cx.notify();
-                    })),
-            );
+            row = row.child(super::chip(
+                cx,
+                SharedString::from(format!("cat-{name}")),
+                SharedString::from(name.clone()),
+                self.category.as_deref() == Some(name.as_str()),
+                cx.listener(move |this, _, _, cx| {
+                    this.category = Some(name.clone());
+                    cx.notify();
+                }),
+            ));
         }
         row
     }
@@ -528,10 +534,13 @@ impl RegisterScreen {
                 .child("No products match.")
                 .into_any_element();
         }
+        // The web grid is `repeat(auto-fill, minmax(170px, 1fr))`; gpui
+        // tracks are fixed, so 4 columns at the 1200px window floor keeps
+        // every tile at or above the 170px minimum.
         let mut grid = div()
             .grid()
             .grid_cols(4)
-            .gap_2()
+            .gap(px(10.))
             .flex_grow(1.)
             .min_h_0()
             .overflow_y_scrollbar();
@@ -549,13 +558,14 @@ impl RegisterScreen {
         v_flex()
             .id(SharedString::from(format!("product-{}", product.id)))
             .cursor_pointer()
-            .gap_1()
-            .p_2()
-            .rounded(cx.theme().radius)
+            .min_h(px(86.))
+            .gap(px(4.))
+            .p(px(12.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
-            .hover(|style| style.bg(cx.theme().secondary_hover))
+            .hover(|style| style.border_color(crate::theme::accent_dim()))
             .on_click(cx.listener({
                 let product_id = product.id.clone();
                 move |this, _, window, cx| {
@@ -568,30 +578,36 @@ impl RegisterScreen {
             }))
             .child(
                 div()
-                    .text_sm()
-                    .font_medium()
+                    .text_size(px(13.5))
+                    .font_weight(FontWeight::SEMIBOLD)
                     .truncate()
                     .child(SharedString::from(product.name.clone())),
             )
             .child(
                 div()
-                    .text_xs()
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(px(11.))
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(product.sku.clone())),
             )
             .child(
                 h_flex()
                     .justify_between()
-                    .items_center()
-                    .child(div().text_sm().child(SharedString::from(fmt_money(
-                        product.price_minor,
-                        self.currency,
-                    ))))
+                    .items_end()
+                    .mt_auto()
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .font_features(crate::theme::tabular())
+                            .text_color(cx.theme().accent)
+                            .child(SharedString::from(fmt_money(
+                                product.price_minor,
+                                self.currency,
+                            ))),
+                    )
                     .when_some(stock_note, |card, note| {
                         card.child(
                             div()
-                                .text_xs()
+                                .text_size(px(11.))
                                 .text_color(cx.theme().muted_foreground)
                                 .child(SharedString::from(note)),
                         )
@@ -614,13 +630,13 @@ impl RegisterScreen {
             .overflow_hidden()
             .max_w(px(420.))
             .min_w_0()
-            .gap_2()
-            .p_3()
-            .rounded(cx.theme().radius)
+            .gap(px(10.))
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
-            .child(self.render_cart_header())
+            .child(self.render_cart_header(cx))
             .when_some(customer, |panel, customer| {
                 panel.child(
                     div()
@@ -638,17 +654,20 @@ impl RegisterScreen {
             .child(self.render_pay_button(cx, totals))
     }
 
-    fn render_cart_header(&self) -> impl IntoElement {
+    fn render_cart_header(&self, cx: &Context<Self>) -> impl IntoElement {
         h_flex()
             .justify_between()
             .items_center()
             .flex_none()
             .child(
+                // The web cart header is the panel kicker: uppercase 12px,
+                // letter-spaced, muted.
                 div()
-                    .text_base()
-                    .font_semibold()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
-                        "Current sale — {} items",
+                        "CURRENT SALE — {} ITEMS",
                         self.cart.lines.len()
                     ))),
             )
@@ -703,14 +722,14 @@ impl RegisterScreen {
                     .gap_0p5()
                     .child(
                         div()
-                            .text_sm()
-                            .font_medium()
+                            .text_size(px(13.5))
+                            .font_weight(FontWeight::SEMIBOLD)
                             .truncate()
                             .child(SharedString::from(line.name.clone())),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(11.))
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(format!(
                                 "{} × {}",
@@ -740,7 +759,7 @@ impl RegisterScreen {
                             .w(px(74.))
                             .text_right()
                             .text_sm()
-                            .font_family(cx.theme().mono_font_family.clone())
+                            .font_features(crate::theme::tabular())
                             .child(SharedString::from(fmt_money(gross_minor, self.currency))),
                     )
                     .child(
@@ -801,7 +820,7 @@ impl RegisterScreen {
         label: &str,
         value: String,
         color: Hsla,
-        cx: &Context<Self>,
+        _cx: &Context<Self>,
     ) -> impl IntoElement {
         h_flex()
             .justify_between()
@@ -809,7 +828,7 @@ impl RegisterScreen {
             .child(div().text_color(color).child(SharedString::from(label)))
             .child(
                 div()
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_features(crate::theme::tabular())
                     .text_color(color)
                     .child(SharedString::from(value)),
             )
@@ -851,6 +870,7 @@ impl RegisterScreen {
                         div()
                             .text_lg()
                             .font_semibold()
+                            .font_features(crate::theme::tabular())
                             .child(SharedString::from(fmt_money(
                                 totals.total_minor,
                                 self.currency,
@@ -886,8 +906,8 @@ impl Render for RegisterScreen {
         h_flex()
             .size_full()
             .items_stretch()
-            .gap_3()
-            .p_3()
+            .gap(px(10.))
+            .p_4()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_catalog(cx, &products))
@@ -1083,6 +1103,7 @@ impl PayDialog {
                         div()
                             .text_xl()
                             .font_semibold()
+                            .font_features(crate::theme::tabular())
                             .text_color(color)
                             .child(SharedString::from(fmt_money(value, self.currency))),
                     ),
@@ -1159,6 +1180,7 @@ impl PayDialog {
             .child(
                 div()
                     .text_xs()
+                    .font_features(crate::theme::tabular())
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
                         "= {}",
@@ -1194,10 +1216,15 @@ impl PayDialog {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(div().text_sm().child(SharedString::from(fmt_money(
-                                tender.applied_minor,
-                                self.currency,
-                            ))))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_features(crate::theme::tabular())
+                                    .child(SharedString::from(fmt_money(
+                                        tender.applied_minor,
+                                        self.currency,
+                                    ))),
+                            )
                             .child(
                                 Button::new(SharedString::from(format!(
                                     "tender-remove-{}",
@@ -1224,6 +1251,8 @@ impl PayDialog {
         let id = if key == "⌫" { "num-back" } else { "num-key" };
         Button::new(SharedString::from(format!("{id}-{key}")))
             .secondary()
+            // Web `.numgrid button`: 14px padding, 16px text — a ~48px key.
+            .h(px(48.))
             .w(px(64.))
             .label(key)
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -1386,7 +1415,7 @@ impl ReceiptDialog {
             )
             .child(
                 div()
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_features(crate::theme::tabular())
                     .text_base()
                     .font_semibold()
                     .text_color(color)
@@ -1402,18 +1431,21 @@ impl Render for ReceiptDialog {
         };
         let text = render_receipt_text(&sale, &self.store, self.currency, 42);
 
+        // The web `.receipt`: white paper, near-black ink, mono 12px,
+        // 8px radius, 340px column.
         let mut paper = v_flex()
             .flex_grow(1.)
             .min_w_0()
             .gap_0p5()
-            .rounded_sm()
-            .bg(cx.theme().background)
-            .p_3();
+            .rounded(px(8.))
+            .bg(crate::theme::receipt_paper())
+            .text_color(crate::theme::receipt_ink())
+            .p(px(14.));
         for line in text.lines() {
             paper = paper.child(
                 div()
                     .font_family(cx.theme().mono_font_family.clone())
-                    .text_sm()
+                    .text_size(px(12.))
                     .whitespace_nowrap()
                     .child(SharedString::from(line.to_string())),
             );

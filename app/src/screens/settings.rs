@@ -5,7 +5,7 @@
 
 use std::sync::Mutex;
 
-use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::WindowExt as _;
@@ -18,8 +18,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, EntityId, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Subscription, Window, div, rems,
+    AppContext as _, Context, Entity, EntityId, FontWeight, IntoElement, ParentElement as _,
+    Render, SharedString, Styled as _, Subscription, Window, div, px, rems,
 };
 use kaseer_core::currency::{CURRENCIES, currency_by_code};
 use kaseer_core::db::{open_repo, resolve_db_path};
@@ -305,12 +305,18 @@ impl SettingsScreen {
             .flex_1()
             .min_w_80()
             .gap_3()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
-            .child(div().text_lg().font_medium().child(SharedString::from("Store")))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(cx.theme().muted_foreground)
+                    .child("STORE"),
+            )
             .when_some(self.load_error.clone(), |panel, error| {
                 panel.child(
                     div()
@@ -343,12 +349,18 @@ impl SettingsScreen {
             .flex_1()
             .min_w_80()
             .gap_3()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
-            .child(div().text_lg().font_medium().child(SharedString::from("Loyalty")))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(cx.theme().muted_foreground)
+                    .child("LOYALTY"),
+            )
             .child(
                 Switch::new("loyalty-enabled")
                     .label("Enable loyalty points")
@@ -473,8 +485,8 @@ impl SettingsScreen {
 
         v_flex()
             .gap_3()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
@@ -486,9 +498,10 @@ impl SettingsScreen {
                     .gap_2()
                     .child(
                         div()
-                            .text_lg()
-                            .font_medium()
-                            .child(SharedString::from("Tax rates")),
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("TAX RATES"),
                     )
                     .child(
                         div()
@@ -511,9 +524,9 @@ impl SettingsScreen {
                 .child(
                     TableHeader::new().child(
                         TableRow::new()
-                            .child(TableHead::new().child("Name"))
-                            .child(TableHead::new().child("Rate %"))
-                            .child(TableHead::new().child("Type")),
+                            .child(TableHead::new().text_size(px(11.)).child("NAME"))
+                            .child(TableHead::new().text_size(px(11.)).child("RATE %"))
+                            .child(TableHead::new().text_size(px(11.)).child("TYPE")),
                     ),
                 )
                 .child(TableBody::new().children(rows))

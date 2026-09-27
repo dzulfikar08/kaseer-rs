@@ -1,104 +1,170 @@
-//! Kaseer design tokens, ported from kaseer/DESIGN.md onto the GPUI Kit theme.
+//! Kaseer design tokens, ported from the kaseer-web SPA (`src/web/theme.css`)
+//! onto the GPUI Kit theme. The web stylesheet is the approved pixel
+//! reference; its `:root` values win over the older kaseer/DESIGN.md set.
 //!
 //! This module is the only place where raw palette hex values live. Screens
 //! read semantic roles from `cx.theme()`, never literals (Design Guides,
 //! "Color and themes").
 //!
-//! DESIGN.md mapping:
-//! - warm charcoal neutrals `#101013` `#16161a` `#1b1b20` `#232329`
-//! - text `#f2f0ec`, dim `#a8a49c` (faint `#7a766e` reserved for large text)
-//! - single till-amber accent `#ffb454`, dark-on-amber foreground
-//! - money states only: green `#5fbf77`, red `#e0654f`
-//! - radius 10 cards/inputs, 14 modals (`radius_lg`)
+//! theme.css mapping:
+//! - cool charcoal neutrals `#0f1115` `#161920` `#1d212b`, border `#2a2f3c`
+//! - text `#e7eaf0`, muted `#8b93a5`
+//! - single till-amber accent `#fbbf24` (dim `#d4a017`), dark-on-amber
+//!   foreground `#1a1206`
+//! - states: danger `#f87171`, ok `#34d399`
+//! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
+//! - 'IBM Plex Sans' (embedded via `assets/fonts`), 14px base, tabular
+//!   numerals on money
 
 use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeTokens};
-use gpui_kit::{App, Hsla, px};
+use gpui_kit::{App, Hsla, Pixels, px};
 
-const CHARCOAL: &str = "#101013";
-const CHARCOAL_1: &str = "#16161a";
-const CHARCOAL_2: &str = "#1b1b20";
-const CHARCOAL_3: &str = "#232329";
-const TEXT: &str = "#f2f0ec";
-const TEXT_DIM: &str = "#a8a49c";
-const AMBER: &str = "#ffb454";
-const MONEY_GREEN: &str = "#5fbf77";
-const MONEY_RED: &str = "#e0654f";
+const BG: &str = "#0f1115";
+const SURFACE: &str = "#161920";
+const SURFACE_2: &str = "#1d212b";
+const BORDER: &str = "#2a2f3c";
+const TEXT: &str = "#e7eaf0";
+const MUTED: &str = "#8b93a5";
+const ACCENT: &str = "#fbbf24";
+const ACCENT_DIM: &str = "#d4a017";
+const DANGER: &str = "#f87171";
+const OK: &str = "#34d399";
+/// The web `.btn.primary`/`.chip.active` foreground: near-black warm brown
+/// that keeps the amber readable.
+const ON_ACCENT: &str = "#1a1206";
+
+/// The app's embedded sans family. Matches the family name baked into the
+/// TTFs under `assets/fonts`, which `install` registers with the text
+/// system; a family set explicitly on the theme is used as-is.
+pub const FONT_SANS: &str = "IBM Plex Sans";
+
+/// The web `.receipt`: white paper, near-black ink. Functions because
+/// `Hsla::parse_hex` is not `const`.
+pub fn receipt_paper() -> Hsla {
+    token("#ffffff")
+}
+
+pub fn receipt_ink() -> Hsla {
+    token("#111111")
+}
+
+/// Cards, panels, product tiles: the web `.panel`/`.catcard` 12px radius.
+/// Buttons and inputs stay on `theme.radius` (9px) because gpui-kit reads
+/// the theme radius for both, and the two genuinely differ on the web.
+pub const CARD_RADIUS: Pixels = px(12.);
+
+/// Web money cells set `font-variant-numeric: tabular-nums`; the embedded
+/// IBM Plex Sans honors `tnum`, so digits line up without falling back to
+/// a monospace face.
+pub fn tabular() -> gpui_kit::FontFeatures {
+    gpui_kit::FontFeatures(std::sync::Arc::new(vec![("tnum".to_string(), 1)]))
+}
 
 fn token(hex: &str) -> Hsla {
     Hsla::parse_hex(hex).expect("valid Kaseer hex token")
 }
 
-/// Load the dark base theme, then repaint every surface role with Kaseer
-/// tokens. Call once after `gpui_kit::init`, before opening windows.
+/// `--accent-dim`: the hover border on product cards and the focus ring.
+/// Screens read it here because no gpui-kit color role carries it.
+pub fn accent_dim() -> Hsla {
+    token(ACCENT_DIM)
+}
+
+/// Load the dark base theme, then repaint every surface role with the web
+/// palette. Call once after `gpui_kit::init`, before opening windows.
 pub fn install(cx: &mut App) {
+    let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")),
+    ];
+    cx.text_system()
+        .add_fonts(fonts)
+        .expect("embedded IBM Plex Sans loads");
+
     Theme::change(ThemeMode::Dark, None, cx);
 
     {
         let theme = Theme::global_mut(cx);
 
-        theme.background = token(CHARCOAL);
+        theme.background = token(BG);
         theme.foreground = token(TEXT);
-        theme.border = token(CHARCOAL_3);
-        theme.input = token(CHARCOAL_3);
-        theme.ring = token(AMBER);
-        theme.selection = token(AMBER).opacity(0.25);
+        theme.border = token(BORDER);
+        theme.input = token(BORDER);
+        theme.ring = token(ACCENT_DIM);
+        theme.selection = token(ACCENT).opacity(0.25);
+        theme.overlay = token("#05070a").opacity(0.62);
 
-        theme.secondary = token(CHARCOAL_2);
-        theme.secondary_hover = token(CHARCOAL_3);
-        theme.secondary_active = token(CHARCOAL_3);
+        // Panels and cards: the web `.panel`/`.catcard` surface. Screens
+        // read `theme.secondary` for these, so it carries `--surface`;
+        // the Secondary *button* fill comes from the independent
+        // `button_secondary` tokens below (web `.btn` paints surface-2).
+        theme.secondary = token(SURFACE);
+        theme.secondary_hover = token(SURFACE);
+        theme.secondary_active = token(SURFACE_2);
         theme.secondary_foreground = token(TEXT);
-        theme.muted = token(CHARCOAL_2);
-        theme.muted_foreground = token(TEXT_DIM);
-        theme.popover = token(CHARCOAL_2);
+        theme.button_secondary = token(SURFACE_2);
+        theme.button_secondary_foreground = token(TEXT);
+        theme.button_secondary_hover = token(SURFACE_2);
+        theme.button_secondary_active = token(SURFACE_2);
+        theme.muted = token(SURFACE_2);
+        theme.muted_foreground = token(MUTED);
+        theme.popover = token(SURFACE);
         theme.popover_foreground = token(TEXT);
 
-        theme.primary = token(AMBER);
-        theme.primary_foreground = token(CHARCOAL);
-        theme.primary_hover = token(AMBER).lighten(0.08);
-        theme.primary_active = token(AMBER).darken(0.08);
+        theme.primary = token(ACCENT);
+        theme.primary_foreground = token(ON_ACCENT);
+        theme.primary_hover = token(ACCENT_DIM);
+        theme.primary_active = token(ACCENT_DIM);
         // `apply_config` only falls back `button_primary` → `primary` while
         // loading a theme config; recoloring the role afterwards does not
         // revisit it. Button reads `tokens.button_primary`, which is copied
         // from this role below — leave it unset and the default dark
         // palette's near-white survives into the Pay button.
-        theme.button_primary = token(AMBER);
-        theme.button_primary_foreground = token(CHARCOAL);
-        theme.button_primary_hover = token(AMBER).lighten(0.08);
-        theme.button_primary_active = token(AMBER).darken(0.08);
-        theme.accent = token(AMBER);
-        theme.accent_foreground = token(CHARCOAL);
-        theme.link = token(AMBER);
-        theme.link_hover = token(AMBER).lighten(0.08);
-        theme.link_active = token(AMBER).darken(0.08);
+        theme.button_primary = token(ACCENT);
+        theme.button_primary_foreground = token(ON_ACCENT);
+        theme.button_primary_hover = token(ACCENT_DIM);
+        theme.button_primary_active = token(ACCENT_DIM);
+        theme.accent = token(ACCENT);
+        theme.accent_foreground = token(ON_ACCENT);
+        theme.link = token(ACCENT);
+        theme.link_hover = token(ACCENT_DIM);
+        theme.link_active = token(ACCENT_DIM);
 
-        theme.sidebar = token(CHARCOAL_1);
-        theme.sidebar_foreground = token(TEXT);
-        theme.sidebar_border = token(CHARCOAL_3);
-        theme.sidebar_accent = token(CHARCOAL_3);
-        theme.sidebar_accent_foreground = token(TEXT);
-        theme.sidebar_primary = token(AMBER);
-        theme.sidebar_primary_foreground = token(CHARCOAL);
+        // The nav rail: web `.rail` paints the strip `--surface` with the
+        // active item on `--surface-2`.
+        theme.sidebar = token(SURFACE);
+        theme.sidebar_foreground = token(MUTED);
+        theme.sidebar_border = token(BORDER);
+        theme.sidebar_accent = token(SURFACE_2);
+        theme.sidebar_accent_foreground = token(ACCENT);
+        theme.sidebar_primary = token(ACCENT);
+        theme.sidebar_primary_foreground = token(ON_ACCENT);
 
-        theme.title_bar = token(CHARCOAL);
-        theme.title_bar_border = token(CHARCOAL_3);
+        theme.title_bar = token(BG);
+        theme.title_bar_border = token(BORDER);
 
-        theme.success = token(MONEY_GREEN);
-        theme.success_foreground = token(CHARCOAL);
-        theme.success_hover = token(MONEY_GREEN).lighten(0.08);
-        theme.success_active = token(MONEY_GREEN).darken(0.08);
-        theme.danger = token(MONEY_RED);
-        theme.danger_foreground = token(CHARCOAL);
-        theme.danger_hover = token(MONEY_RED).lighten(0.08);
-        theme.danger_active = token(MONEY_RED).darken(0.08);
-        theme.warning = token(AMBER);
-        theme.warning_foreground = token(CHARCOAL);
-        theme.warning_hover = token(AMBER).lighten(0.08);
-        theme.warning_active = token(AMBER).darken(0.08);
+        theme.success = token(OK);
+        theme.success_foreground = token(BG);
+        theme.success_hover = token(OK).lighten(0.08);
+        theme.success_active = token(OK).darken(0.08);
+        theme.danger = token(DANGER);
+        theme.danger_foreground = token(BG);
+        theme.danger_hover = token(DANGER).lighten(0.08);
+        theme.danger_active = token(DANGER).darken(0.08);
+        theme.warning = token(ACCENT);
+        theme.warning_foreground = token(ON_ACCENT);
+        theme.warning_hover = token(ACCENT).lighten(0.08);
+        theme.warning_active = token(ACCENT).darken(0.08);
 
-        // DESIGN.md radius: 10 for cards/inputs, 14 for modals. Chips and
-        // numpad keys get their 8px treatment at the component layer.
-        theme.radius = px(10.);
+        // theme.css radius: 9px buttons/inputs, 14px modals. Cards and
+        // panels use CARD_RADIUS (12px) at the component layer, chips are
+        // full pills.
+        theme.radius = px(9.);
         theme.radius_lg = px(14.);
+
+        // The web ships 'IBM Plex Sans' with a system-ui fallback; the
+        // embedded family covers it, so name it directly.
+        theme.font_family = FONT_SANS.into();
 
         // Buttons and other styled components read the stored token
         // projection, not the color roles, so re-project after recoloring.

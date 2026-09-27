@@ -10,7 +10,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{
-    ActiveTheme as _, Sizable as _, Selectable as _, WindowExt as _,
+    ActiveTheme as _, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _, Toggle},
     dialog::{DialogAction, DialogClose, DialogFooter},
     input::{Input, InputState},
@@ -157,6 +157,7 @@ impl InventoryScreen {
         // every frame and must only re-wrap it, or the inputs reset per frame.
         let view = cx.new(|cx| AdjustStockDialog::new(window, cx));
 
+        let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
             let ok_view = view.clone();
             let ok_screen = screen.clone();
@@ -165,6 +166,7 @@ impl InventoryScreen {
             let title = SharedString::from(format!("Adjust stock — {product_name}"));
             dialog
                 .title(title)
+                .bg(surface)
                 .child(view.clone())
                 .footer(
                     DialogFooter::new()
@@ -318,21 +320,22 @@ impl InventoryScreen {
             .flex_1()
             .min_w(px(180.))
             .gap_1()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(11.))
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(label.to_uppercase())),
             )
             .child(
                 div()
-                    .text_xl()
-                    .font_weight(FontWeight::MEDIUM)
+                    .text_size(px(22.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_features(crate::theme::tabular())
                     .text_color(color.unwrap_or(cx.theme().foreground))
                     .child(SharedString::from(value)),
             )
@@ -368,8 +371,8 @@ impl InventoryScreen {
         v_flex()
             .flex_1()
             .gap_2()
-            .p_4()
-            .rounded(cx.theme().radius)
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
@@ -379,9 +382,10 @@ impl InventoryScreen {
                     .justify_between()
                     .child(
                         div()
-                            .text_base()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(SharedString::from("Stock on hand")),
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("STOCK ON HAND"),
                     )
                     .child(self.render_filter_chips(cx)),
             )
@@ -392,26 +396,29 @@ impl InventoryScreen {
     fn render_filter_chips(&self, cx: &Context<Self>) -> impl IntoElement {
         let lows = self.count_lows();
         let outs = self.count_outs();
-        let chip = |id: &'static str, label: SharedString, filter: StockFilter| {
-            Button::new(id)
-                .label(label)
-                .outline()
-                .small()
-                .selected(self.filter == filter)
-                .on_click(cx.listener(move |this, _, _, cx| {
+        let chip = |cx: &Context<Self>, id: &'static str, label: SharedString, filter: StockFilter| {
+            super::chip(
+                cx,
+                id,
+                label,
+                self.filter == filter,
+                cx.listener(move |this, _, _, cx| {
                     this.filter = filter;
                     cx.notify();
-                }))
+                }),
+            )
         };
         h_flex()
             .gap_2()
-            .child(chip("filter-all", "All".into(), StockFilter::All))
+            .child(chip(cx, "filter-all", "All".into(), StockFilter::All))
             .child(chip(
+                cx,
                 "filter-low",
                 SharedString::from(format!("Low ({lows})")),
                 StockFilter::Low,
             ))
             .child(chip(
+                cx,
                 "filter-out",
                 SharedString::from(format!("Out ({outs})")),
                 StockFilter::Out,
@@ -432,9 +439,9 @@ impl InventoryScreen {
             .child(
                 div().w_20().child(
                     div()
-                        .text_xs()
+                        .text_size(px(11.))
                         .text_color(cx.theme().muted_foreground)
-                        .child("Status"),
+                        .child("STATUS"),
                 ),
             )
             .child(div().w_20())
@@ -442,9 +449,9 @@ impl InventoryScreen {
 
     fn header_cell(&self, cx: &Context<Self>, text: &str, right: bool) -> impl IntoElement {
         let mut cell = div()
-            .text_xs()
+            .text_size(px(11.))
             .text_color(cx.theme().muted_foreground)
-            .child(SharedString::from(text.to_string()));
+            .child(SharedString::from(text.to_uppercase()));
         if right {
             cell = cell.w_20().text_right();
         } else {
@@ -496,7 +503,7 @@ impl InventoryScreen {
                     .w_20()
                     .text_right()
                     .text_sm()
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_features(crate::theme::tabular())
                     .child(SharedString::from(on_hand.to_string())),
             )
             .child(
@@ -505,7 +512,7 @@ impl InventoryScreen {
                     .text_right()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_features(crate::theme::tabular())
                     .child(SharedString::from(product.low_stock_at.to_string())),
             )
             .child(
