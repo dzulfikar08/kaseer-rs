@@ -137,6 +137,20 @@ pub fn local_image_path(db_path: &str, image_path: &str) -> Option<PathBuf> {
 pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<MenuApply> {
     let conn = repo.conn();
 
+    // The companion's Menu UI lets a store save a product with an existing
+    // SKU (its upsert keys by id, so the duplicate is invisible there),
+    // while products.sku is UNIQUE here. Dedupe by sku, last-wins — the
+    // newer edit is the companion's intent — or the second row would abort
+    // the whole pull with a constraint error.
+    let mut seen_skus = std::collections::HashSet::new();
+    let mut products = Vec::with_capacity(payload.products.len());
+    for p in payload.products.iter().rev() {
+        if seen_skus.insert(p.sku.as_str()) {
+            products.push(p);
+        }
+    }
+    products.reverse();
+
     // Previous photo paths, so the caller can fetch exactly what changed.
     let old_paths: HashMap<String, String> = {
         let mut stmt = conn.prepare("SELECT id, image_path FROM products")?;
@@ -155,7 +169,15 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
             inclusive: rate.inclusive,
         })?;
     }
-    for p in &payload.products {
+    for p in &products {
+        // Source of truth: the payload's sku→id assignment wins. A local
+        // row holding this sku under another id (created before the
+        // companion grew the replacement, then left out of the payload)
+        // loses its sku so the UNIQUE constraint never aborts the pull.
+        tx.execute(
+            "UPDATE products SET sku = sku || '-replaced-' || id WHERE sku = ?1 AND id != ?2",
+            params![p.sku, p.id],
+        )?;
         repo.upsert_product(&crate::repos::Product {
             id: p.id.clone(),
             sku: p.sku.clone(),
@@ -187,7 +209,7 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
     // local copy is missing (heals failed downloads on the next pull).
     let db_path = repo.db_path();
     let mut image_files = Vec::new();
-    for p in &payload.products {
+    for p in &products {
         let Some(file) = image_file_of(&p.image_path) else { continue };
         let changed = old_paths.get(&p.id).map(String::as_str).unwrap_or("") != p.image_path;
         let missing = !local_image_path(db_path, &p.image_path).is_some_and(|path| path.exists());
@@ -196,5 +218,5 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
         }
     }
 
-    Ok(MenuApply { rev: payload.rev, products: payload.products.len(), image_files })
+    Ok(MenuApply { rev: payload.rev, products: products.len(), image_files })
 }

@@ -139,3 +139,58 @@ fn image_paths_are_validated_before_they_touch_the_filesystem() {
     let resolved = menu::local_image_path("./data/ledger.db", "images/abc.jpg").unwrap();
     assert_eq!(resolved, std::path::Path::new("./data/images").join("abc.jpg"));
 }
+
+#[test]
+fn duplicate_skus_dedupe_last_wins_instead_of_aborting_the_pull() {
+    // The companion's Menu UI can save a product onto an existing SKU (its
+    // upsert keys by id), so a payload may carry two rows with one UNIQUE
+    // sku. The pull must converge last-wins, not die on the constraint.
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo_in(&dir);
+    let americano_id = repo
+        .products(false, None)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.sku == "8991002100028")
+        .unwrap()
+        .id;
+
+    let payload = menu::parse_menu(
+        format!(
+            r#"{{
+              "v": 1, "rev": 12,
+              "taxRates": [], "categories": ["Coffee"],
+              "products": [
+                {{ "id": "{americano_id}", "sku": "8991002100028", "name": "Americano",
+                   "category": "Coffee", "priceMinor": 16000, "costMinor": 5000,
+                   "taxRateId": null, "trackStock": false, "lowStockAt": 0,
+                   "archived": false, "description": "stale copy",
+                   "prepNotes": "", "allergens": "", "routeKitchen": false,
+                   "imagePath": "" }},
+                {{ "id": "p-new-row", "sku": "8991002100028", "name": "Americano Reborn",
+                   "category": "Coffee", "priceMinor": 17000, "costMinor": 6000,
+                   "taxRateId": null, "trackStock": false, "lowStockAt": 0,
+                   "archived": false, "description": "the newer edit",
+                   "prepNotes": "", "allergens": "", "routeKitchen": false,
+                   "imagePath": "" }}
+              ]
+            }}"#
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+
+    let apply = menu::apply_menu(&repo, &payload).unwrap();
+    assert_eq!(apply.products, 1, "duplicate sku must dedupe before the write");
+
+    let all = repo.products(true, None).unwrap();
+    assert_eq!(
+        all.iter().filter(|p| p.sku == "8991002100028").count(),
+        1,
+        "no constraint error, exactly one row keeps the sku"
+    );
+    let winner = all.iter().find(|p| p.sku == "8991002100028").unwrap();
+    assert_eq!(winner.name, "Americano Reborn", "last-wins matches companion intent");
+    assert_eq!(winner.price_minor, 17000);
+    assert_eq!(winner.description, "the newer edit");
+}
