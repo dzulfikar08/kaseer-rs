@@ -123,6 +123,9 @@ impl ShiftScreen {
         repo_guard(&self.repo)
             .close_shift(&shift_id, counted_minor)
             .map_err(|e| e.to_string())?;
+        // Cloud sync: the shift's sales are final — push them now
+        // (fire-and-forget; the outbox keeps them if the cloud is down).
+        crate::sync_client::spawn_background_drain(cx);
         self.reload(cx)?;
         Ok(())
     }
@@ -488,7 +491,7 @@ impl ShiftScreen {
 /// live while typing; the dialog frame itself is built once at open time.
 /// Screen mutation happens through handles captured at open time, so this
 /// view only carries what it renders.
-struct CloseShiftDialog {
+pub(crate) struct CloseShiftDialog {
     expected_minor: i64,
     cur: &'static Currency,
     counts: Vec<(i64, Entity<InputState>)>,
@@ -496,7 +499,7 @@ struct CloseShiftDialog {
 }
 
 impl CloseShiftDialog {
-    fn new(
+    pub(crate) fn new(
         expected_minor: i64,
         cur: &'static Currency,
         window: &mut Window,
@@ -528,7 +531,7 @@ impl CloseShiftDialog {
         state.value().trim().parse::<i64>().unwrap_or(0).max(0)
     }
 
-    fn counted_minor(&self, cx: &App) -> i64 {
+    pub(crate) fn counted_minor(&self, cx: &App) -> i64 {
         let counts: Vec<DenominationCount> = self
             .counts
             .iter()

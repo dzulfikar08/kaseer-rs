@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 gpui-kit = "0.6.6"
 kaseer-core = { path = "../core" }
+serde_json = "1"
+# Cloud sync transport: rustls (no OpenSSL), JSON responses via bytes.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }

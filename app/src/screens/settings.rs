@@ -4,6 +4,7 @@
 //! field loses focus.
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::notification::Notification;
@@ -26,6 +27,7 @@ use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::loyalty::LoyaltyConfig;
 use kaseer_core::money as money_core;
 use kaseer_core::repos::{Repo, Settings, StoreConfig};
+use kaseer_core::sync::{self, Outbox};
 use kaseer_core::tax::TaxRate;
 
 /// One editable percent cell: the stored rate plus its input.
@@ -70,6 +72,13 @@ pub struct SettingsScreen {
     tax_fields: Vec<TaxField>,
     load_error: Option<String>,
     _subscriptions: Vec<Subscription>,
+    /// Cloud sync: config lives in the outbox's own SQLite file (device
+    /// local), never in the shared ledger.
+    cloud_url: Entity<InputState>,
+    cloud_token: Entity<InputState>,
+    outbox: Option<Outbox>,
+    sync_in_flight: bool,
+    sync_message: Option<String>,
 }
 
 impl SettingsScreen {
@@ -113,6 +122,19 @@ impl SettingsScreen {
             tax_fields.push(TaxField { rate: rate.clone(), pct });
         }
 
+        let outbox = Outbox::open(&sync::resolve_outbox_path()).ok();
+        let cloud_url_value = outbox
+            .as_ref()
+            .and_then(|o| o.meta_get("cloud_url"))
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(sync::default_cloud_url);
+        let cloud_token_value = outbox
+            .as_ref()
+            .and_then(|o| o.meta_get("store_token"))
+            .unwrap_or_default();
+        let cloud_url = text_input(window, cx, &cloud_url_value, sync::PLACEHOLDER_CLOUD_URL);
+        let cloud_token = text_input(window, cx, &cloud_token_value, "Store token");
+
         let mut this = Self {
             repo,
             store_name,
@@ -128,6 +150,11 @@ impl SettingsScreen {
             tax_fields,
             load_error,
             _subscriptions: Vec::new(),
+            cloud_url,
+            cloud_token,
+            outbox,
+            sync_in_flight: false,
+            sync_message: None,
         };
 
         this._subscriptions.push(cx.subscribe_in(
@@ -152,6 +179,19 @@ impl SettingsScreen {
                 },
             ));
         }
+        for input in [this.cloud_url.clone(), this.cloud_token.clone()] {
+            this._subscriptions.push(cx.subscribe_in(
+                &input,
+                window,
+                |this, state, event, _window, cx| {
+                    if matches!(event, InputEvent::Blur) {
+                        this.save_sync_config(state.entity_id(), cx);
+                    }
+                },
+            ));
+        }
+
+        this.spawn_pending_refresh(cx);
 
         this
     }
@@ -212,6 +252,94 @@ impl SettingsScreen {
         }
     }
 
+    /// Blur-commit for the cloud URL and store token, persisted in the
+    /// outbox's meta table. Clearing a field resets it to its default
+    /// (the meta key is dropped), matching the seed shown on next visit.
+    fn save_sync_config(&mut self, input_id: EntityId, cx: &mut Context<Self>) {
+        let Some(outbox) = &self.outbox else {
+            return;
+        };
+        let (key, value) = if input_id == self.cloud_url.entity_id() {
+            (
+                "cloud_url",
+                self.cloud_url.read(cx).value().trim().to_string(),
+            )
+        } else if input_id == self.cloud_token.entity_id() {
+            (
+                "store_token",
+                self.cloud_token.read(cx).value().trim().to_string(),
+            )
+        } else {
+            return;
+        };
+        if outbox.meta_get(key).as_deref() == Some(value.as_str()) {
+            return;
+        }
+        let saved = if value.is_empty() {
+            outbox.meta_delete(key)
+        } else {
+            outbox.meta_set(key, &value)
+        };
+        match saved {
+            Ok(()) => cx.notify(),
+            Err(error) => self.sync_message = Some(format!("Could not save: {error}")),
+        }
+    }
+
+    /// Keeps the pending count and status line honest: retained screens
+    /// only re-render when notified, and sales settle on other screens.
+    /// The loop ends when the screen entity is dropped.
+    fn spawn_pending_refresh(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// (pending, last sync, last error) straight from the outbox file.
+    fn sync_status(&self) -> (u64, Option<String>, Option<String>) {
+        let Some(outbox) = &self.outbox else {
+            return (0, None, None);
+        };
+        (
+            outbox.pending_count(),
+            outbox.meta_get("last_sync_at"),
+            outbox.meta_get("last_error"),
+        )
+    }
+
+    /// Forced drain on the background executor: ignores the failure
+    /// backoff window, flips the button into its in-flight state, and
+    /// reports through the status line — never a modal or toast.
+    fn sync_now(&mut self, cx: &mut Context<Self>) {
+        if self.sync_in_flight {
+            return;
+        }
+        self.sync_in_flight = true;
+        self.sync_message = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { crate::sync_client::drain_once(true) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.sync_in_flight = false;
+                this.sync_message = Some(match &result {
+                    Ok(outcome) => outcome.summary(),
+                    Err(error) => format!("Sync failed: {error}"),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn toast_ok(window: &mut Window, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         window.push_notification(Notification::success(message), cx);
     }
@@ -267,6 +395,13 @@ fn money_text(minor: i64, code: &str) -> String {
     }
 }
 
+/// RFC3339 → "YYYY-MM-DD HH:MM" for the sync status line.
+fn short_time(iso: &str) -> String {
+    iso.get(..16)
+        .map(|s| s.replace('T', " "))
+        .unwrap_or_else(|| iso.to_string())
+}
+
 impl Render for SettingsScreen {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -284,7 +419,8 @@ impl Render for SettingsScreen {
                     .gap_3()
                     .child(self.render_profile_row(cx))
                     .child(self.render_save_row(cx))
-                    .child(self.render_tax_panel(cx)),
+                    .child(self.render_tax_panel(cx))
+                    .child(self.render_sync_panel(cx)),
             )
     }
 }
@@ -513,6 +649,126 @@ impl SettingsScreen {
                     ),
             )
             .child(self.render_tax_table(cx, rows))
+    }
+
+    /// The cloud sync card: endpoint config, live outbox status, and the
+    /// manual drain. Offline failures land in the status line — the
+    /// cashier's sale path never blocks on the cloud.
+    fn render_sync_panel(&self, cx: &Context<Self>) -> impl IntoElement {
+        let (pending, last_sync, last_error) = self.sync_status();
+        v_flex()
+            .gap_3()
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
+            .bg(cx.theme().secondary)
+            .border_1()
+            .border_color(cx.theme().border)
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("CLOUD SYNC"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(format!(
+                                "{} pending · last sync {}",
+                                pending,
+                                last_sync
+                                    .as_deref()
+                                    .map(short_time)
+                                    .unwrap_or_else(|| "never".to_string()),
+                            ))),
+                    ),
+            )
+            .when_some(last_error, |panel, error| {
+                panel.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().danger)
+                        .child(SharedString::from(format!("Last error: {error}"))),
+                )
+            })
+            .when(self.outbox.is_none(), |panel| {
+                panel.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().danger)
+                        .child("Sync database unavailable — sync disabled."),
+                )
+            })
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_64()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Cloud URL"),
+                            )
+                            .child(Input::new(&self.cloud_url)),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_64()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Store token"),
+                            )
+                            .child(Input::new(&self.cloud_token).mask_toggle()),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .items_center()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(
+                                self.sync_message
+                                    .clone()
+                                    .unwrap_or_else(|| {
+                                        "Fields save when they lose focus.".to_string()
+                                    }),
+                            )),
+                    )
+                    .child(
+                        Button::new("sync-now")
+                            .label(if self.sync_in_flight {
+                                "Syncing…"
+                            } else {
+                                "Sync now"
+                            })
+                            .disabled(self.sync_in_flight || self.outbox.is_none())
+                            .on_click(cx.listener(|this, _, _, cx| this.sync_now(cx))),
+                    ),
+            )
     }
 
     fn render_tax_table(&self, cx: &Context<Self>, rows: Vec<TableRow>) -> impl IntoElement {

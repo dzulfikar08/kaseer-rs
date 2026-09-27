@@ -27,5 +27,6 @@ pub mod reports;
 pub mod segments;
 pub mod seed_data;
 pub mod shift;
+pub mod sync;
 pub mod tax;
 pub mod winback;

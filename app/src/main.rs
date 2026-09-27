@@ -3,6 +3,7 @@
 
 mod screens;
 mod shell;
+mod sync_client;
 mod theme;
 
 use gpui_kit::component::Root;
@@ -81,6 +82,13 @@ fn main() {
                     cx.new(|cx| Root::new(view, window, cx))
                 })
                 .expect("failed to open the Kaseer window");
+
+                // Cloud sync: drain whatever the last session left queued
+                // (respects the failure backoff window; see sync_client).
+                cx.background_spawn(async move {
+                    let _ = sync_client::drain_once(false);
+                })
+                .detach();
             })
             .detach();
         });
