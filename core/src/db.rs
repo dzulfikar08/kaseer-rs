@@ -165,6 +165,115 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch("PRAGMA user_version = 2;")?;
         tx.commit()?;
     }
+    if version < 3 {
+        let tx = conn.unchecked_transaction()?;
+        // Phase 3 (web companion): product knowledge for the register
+        // popover and inventory editor, plus kitchen tickets derived when
+        // a sale settles with kitchen-routed lines. Kept verbatim against
+        // kaseer-web's migrate() — both apps open the same ledger file.
+        conn.execute_batch(
+            "ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT '';
+             ALTER TABLE products ADD COLUMN prep_notes TEXT NOT NULL DEFAULT '';
+             ALTER TABLE products ADD COLUMN allergens TEXT NOT NULL DEFAULT '';
+             ALTER TABLE products ADD COLUMN route_kitchen INTEGER NOT NULL DEFAULT 0;
+             CREATE TABLE kitchen_tickets (
+               id TEXT PRIMARY KEY,
+               sale_id TEXT NOT NULL REFERENCES sales(id),
+               sale_number TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               status TEXT NOT NULL DEFAULT 'queued'
+             );
+             CREATE INDEX idx_kitchen_tickets_created ON kitchen_tickets(created_at);
+             CREATE TABLE kitchen_ticket_items (
+               id TEXT PRIMARY KEY,
+               ticket_id TEXT NOT NULL REFERENCES kitchen_tickets(id),
+               product_id TEXT NOT NULL,
+               name TEXT NOT NULL,
+               qty REAL NOT NULL,
+               state TEXT NOT NULL DEFAULT 'queued',
+               bumped INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX idx_kitchen_items_ticket ON kitchen_ticket_items(ticket_id);",
+        )?;
+        seed_knowledge(conn)?;
+        conn.execute_batch("PRAGMA user_version = 3;")?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+/// Demo knowledge for prepared seed products, matched by stable SKU.
+/// Row-for-row parity with kaseer-web's `seedKnowledge`: whichever app
+/// seeds first, both read the same copy.
+fn seed_knowledge(conn: &Connection) -> rusqlite::Result<()> {
+    const KNOWLEDGE_SEED: [(&str, &str, &str, &str, i64); 7] = [
+        (
+            "8991002100011",
+            "Espresso with palm-sugar syrup and fresh milk over ice.",
+            "Pull 2 shots over ice, add palm syrup, top with milk, stir twice.",
+            "milk",
+            1,
+        ),
+        (
+            "8991002100028",
+            "Double shot of espresso lengthened with hot water. Served black.",
+            "Pull 2 shots, add hot water to the 8oz line. Serve immediately.",
+            "none",
+            1,
+        ),
+        (
+            "8991002101018",
+            "Fried rice with egg, chicken, and prawn crackers.",
+            "Egg first in the wok, then rice on high heat for 3 min.",
+            "egg, soy, crustacean (krupuk)",
+            1,
+        ),
+        (
+            "8991002101025",
+            "Stir-fried noodles with vegetables and sweet soy.",
+            "Wok on high heat 3 min; keep noodles al dente.",
+            "gluten, egg, soy",
+            1,
+        ),
+        (
+            "8991002101032",
+            "Smashed fried chicken thigh over rice with sambal.",
+            "Fry thigh 6 min, smash with sambal, plate over warm rice.",
+            "gluten, poultry",
+            1,
+        ),
+        (
+            "8991002101049",
+            "Toasted bread with chocolate sprinkles and condensed milk.",
+            "Toast 2 min per side; add chocolate while hot so it melts.",
+            "gluten, milk, soy",
+            1,
+        ),
+        (
+            "8991002102017",
+            "Hand-cut fries, salted.",
+            "Fry 3.5 min at 175C, drain, salt, serve hot.",
+            "none",
+            1,
+        ),
+    ];
+    for (sku, description, prep, allergens, routed) in KNOWLEDGE_SEED {
+        conn.execute(
+            "UPDATE products SET description = ?, prep_notes = ?, allergens = ?, route_kitchen = ? WHERE sku = ?",
+            rusqlite::params![description, prep, allergens, routed, sku],
+        )?;
+    }
+    Ok(())
+}
+
+/// Copy `source` into a fresh `target` file. The training sandbox starts
+/// from a copy of the live ledger; `VACUUM INTO` reads through WAL and
+/// writes a consistent snapshot, so the copy stays valid even while the
+/// register holds the source open. `target` must not exist — callers
+/// remove stale copies (and their `-wal`/`-shm` sidecars) first.
+pub fn snapshot_db(source: &str, target: &str) -> rusqlite::Result<()> {
+    let src = Connection::open(source)?;
+    src.execute("VACUUM INTO ?1", [target])?;
     Ok(())
 }
 

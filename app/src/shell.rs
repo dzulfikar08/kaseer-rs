@@ -19,12 +19,14 @@ use gpui_kit::{
 };
 
 use crate::screens::{
-    CustomersScreen, InventoryScreen, RegisterScreen, ReportsScreen, SettingsScreen, ShiftScreen,
+    CustomersScreen, InventoryScreen, KnowledgeScreen, RegisterScreen, ReportsScreen,
+    SettingsScreen, ShiftScreen, TrainingScreen,
 };
 
 /// One navigation entry: the shell's screen identity. Dashboard,
 /// Campaigns, and Copilot moved to the web companion and are deleted
-/// from this app.
+/// from this app; Training and Knowledge are the terminal's own
+/// operation screens.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NavItem {
     Register,
@@ -33,11 +35,13 @@ enum NavItem {
     Customers,
     Reports,
     Settings,
+    Training,
+    Knowledge,
 }
 
-/// Rail order after the web-companion split. The rail renders two extra
-/// reserved slots after these (see `FUTURE_SLOTS`) for the screens queued
-/// to land here next.
+/// Rail order after the web-companion split. Training and Knowledge are
+/// the two slots that used to sit reserved at the bottom — now real
+/// screens, so the rail renders every entry the same way.
 const NAV_ITEMS: &[NavItem] = &[
     NavItem::Register,
     NavItem::Shift,
@@ -45,11 +49,9 @@ const NAV_ITEMS: &[NavItem] = &[
     NavItem::Customers,
     NavItem::Reports,
     NavItem::Settings,
+    NavItem::Training,
+    NavItem::Knowledge,
 ];
-
-/// Inert rail placeholders under the live items: two screens are queued to
-/// move back from the web companion, and the slots hold their place.
-const FUTURE_SLOT_LABELS: &[&str] = &["Training", "Knowledge"];
 
 impl NavItem {
     fn label(self) -> &'static str {
@@ -60,6 +62,8 @@ impl NavItem {
             NavItem::Customers => "Customers",
             NavItem::Reports => "Reports",
             NavItem::Settings => "Settings",
+            NavItem::Training => "Training",
+            NavItem::Knowledge => "Knowledge",
         }
     }
 
@@ -71,6 +75,8 @@ impl NavItem {
             NavItem::Customers => IconName::Users,
             NavItem::Reports => IconName::ChartLine,
             NavItem::Settings => IconName::Settings,
+            NavItem::Training => IconName::GraduationCap,
+            NavItem::Knowledge => IconName::BookOpen,
         }
     }
 }
@@ -83,6 +89,8 @@ struct ScreenSlots {
     customers: Option<Entity<CustomersScreen>>,
     reports: Option<Entity<ReportsScreen>>,
     settings: Option<Entity<SettingsScreen>>,
+    training: Option<Entity<TrainingScreen>>,
+    knowledge: Option<Entity<KnowledgeScreen>>,
 }
 
 impl ScreenSlots {
@@ -94,6 +102,8 @@ impl ScreenSlots {
             customers: None,
             reports: None,
             settings: None,
+            training: None,
+            knowledge: None,
         }
     }
 }
@@ -150,6 +160,18 @@ impl AppShell {
                 .screens
                 .settings
                 .get_or_insert_with(|| cx.new(|cx| SettingsScreen::new(window, cx)))
+                .clone()
+                .into_any_element(),
+            NavItem::Training => self
+                .screens
+                .training
+                .get_or_insert_with(|| cx.new(|cx| TrainingScreen::new(window, cx)))
+                .clone()
+                .into_any_element(),
+            NavItem::Knowledge => self
+                .screens
+                .knowledge
+                .get_or_insert_with(|| cx.new(|cx| KnowledgeScreen::new(window, cx)))
                 .clone()
                 .into_any_element(),
         }
@@ -213,27 +235,6 @@ impl AppShell {
                             .text_size(px(10.5))
                             .child(item.label()),
                     )
-            }))
-            // Two reserved rail slots for the screens queued to land here
-            // from the web companion. Inert until a real screen owns them:
-            // no id, no click handler, dimmed so they read as roadmap, not
-            // as broken navigation.
-            .children(FUTURE_SLOT_LABELS.iter().map(|label| {
-                v_flex()
-                    .w(px(64.))
-                    .pt(px(8.))
-                    .pb(px(6.))
-                    .items_center()
-                    .gap(px(2.))
-                    .rounded(px(10.))
-                    .opacity(0.45)
-                    .text_color(cx.theme().sidebar_foreground)
-                    .child(
-                        Icon::new(IconName::Plus)
-                            .with_size(px(17.))
-                            .text_color(cx.theme().sidebar_foreground),
-                    )
-                    .child(div().text_size(px(10.5)).child(*label))
             }))
     }
 

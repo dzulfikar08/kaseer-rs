@@ -4,10 +4,12 @@
 pub mod customers;
 
 pub mod inventory;
+pub mod knowledge;
 pub mod register;
 pub mod reports;
 pub mod settings;
 pub mod shift;
+pub mod training;
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -19,10 +21,12 @@ use gpui_kit::{
 pub use customers::CustomersScreen;
 
 pub use inventory::InventoryScreen;
+pub use knowledge::KnowledgeScreen;
 pub use register::RegisterScreen;
 pub use reports::ReportsScreen;
 pub use settings::SettingsScreen;
 pub use shift::ShiftScreen;
+pub use training::TrainingScreen;
 
 /// The web `.chip`: a full-pill toggle. Inactive is a hairline outline with
 /// muted text; active is the amber fill with the dark-on-amber foreground,

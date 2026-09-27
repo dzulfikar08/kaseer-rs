@@ -18,6 +18,7 @@ use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::searchable_list::SearchableListItem;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
@@ -26,9 +27,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, EventEmitter, FontWeight, Hsla, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Subscription, Window, div, px,
+    Anchor, AppContext as _, Context, Entity, EventEmitter, FontWeight, Hsla,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
 };
 use super::customers::SelectedCustomer;
 use kaseer_core::cart::{self, Cart, CartTotals, Discount};
@@ -555,12 +556,16 @@ impl RegisterScreen {
             .stock
             .get(&product.id)
             .map(|on_hand| format!("{on_hand} in stock"));
-        v_flex()
+        let known = has_knowledge(product);
+        let card = v_flex()
             .id(SharedString::from(format!("product-{}", product.id)))
             .cursor_pointer()
             .min_h(px(86.))
             .gap(px(4.))
             .p(px(12.))
+            // The web card reserves the corner for the knowledge affordance
+            // (`paddingRight: 28`) so long names never run under it.
+            .when(known, |card| card.pr(px(28.)))
             .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
@@ -612,7 +617,45 @@ impl RegisterScreen {
                                 .child(SharedString::from(note)),
                         )
                     }),
+            );
+        if known {
+            // The web `.kinfo`: a small corner button floating over the
+            // card's top-right, opening a click-away knowledge popover.
+            // The position lives on a wrapper div — the Popover styles its
+            // content surface, not the trigger.
+            div()
+                .relative()
+                .child(card)
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(6.))
+                        .right(px(6.))
+                        .child(self.render_knowledge_popover(product, cx)),
+                )
+                .into_any_element()
+        } else {
+            card.into_any_element()
+        }
+    }
+
+    /// The knowledge affordance: an Info corner button floating over the
+    /// card's top-right (the web `.kinfo` position), opening a click-away
+    /// knowledge popover — the register.tsx `openPeek` flow on gpui-kit's
+    /// Popover.
+    fn render_knowledge_popover(&self, product: &Product, cx: &Context<Self>) -> impl IntoElement {
+        let product = product.clone();
+        let (muted, foreground) = (cx.theme().muted_foreground, cx.theme().foreground);
+        let button_id = SharedString::from(format!("kinfo-btn-{}", product.id));
+        Popover::new(SharedString::from(format!("kinfo-{}", product.id)))
+            .anchor(Anchor::BottomRight)
+            .trigger(
+                Button::new(button_id)
+                    .secondary()
+                    .small()
+                    .icon(Icon::new(IconName::Info).with_size(px(13.))),
             )
+            .content(move |_, _, _| knowledge_peek_card(product.clone(), muted, foreground))
     }
 
     fn render_cart_panel(
@@ -917,8 +960,9 @@ impl Render for RegisterScreen {
 
 // ── Pay dialog ────────────────────────────────────────────────────────────
 
-/// What the pay dialog reports back to the register.
-enum PayEvent {
+/// What the pay dialog reports back to the register (and the training
+/// sandbox, which reuses this dialog verbatim).
+pub(crate) enum PayEvent {
     Paid {
         tenders: Vec<Tender>,
         redeem_points: i64,
@@ -928,20 +972,21 @@ enum PayEvent {
 impl EventEmitter<PayEvent> for PayDialog {}
 
 #[derive(Clone)]
-struct CustomerSnapshot {
+pub(crate) struct CustomerSnapshot {
     // Kept so the paid receipt can address the buyer; only `points`
     // feeds the pay dialog today.
     #[allow(dead_code)]
-    id: String,
+    pub(crate) id: String,
     #[allow(dead_code)]
-    name: String,
-    points: i64,
+    pub(crate) name: String,
+    pub(crate) points: i64,
 }
 
 /// Payment modal: tender composition against the running total. Cash may
 /// overpay (that is what change is); the other methods cannot; loyalty
-/// points ride in as their own tender.
-struct PayDialog {
+/// points ride in as their own tender. `pub(crate)`: the training screen
+/// reuses this exact dialog for its payment lesson.
+pub(crate) struct PayDialog {
     total_minor: i64,
     customer: Option<CustomerSnapshot>,
     loyalty: LoyaltyConfig,
@@ -952,7 +997,7 @@ struct PayDialog {
 }
 
 impl PayDialog {
-    fn new(currency: &'static Currency, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(currency: &'static Currency, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let entry = cx.new(|cx| {
             InputState::new(window, cx).placeholder(format!("Amount ({})", currency.code))
         });
@@ -973,7 +1018,7 @@ impl PayDialog {
         }
     }
 
-    fn reset(
+    pub(crate) fn reset(
         &mut self,
         total_minor: i64,
         customer: Option<CustomerSnapshot>,
@@ -1343,9 +1388,18 @@ impl Render for PayDialog {
 
 // ── Receipt dialog ────────────────────────────────────────────────────────
 
+/// What the receipt dialog reports back: the reader dismissed the paper
+/// ("New sale"). The register ignores it; the training receipt lesson
+/// completes on exactly this seam.
+pub(crate) enum ReceiptEvent {
+    Closed,
+}
+
+impl EventEmitter<ReceiptEvent> for ReceiptDialog {}
+
 /// Thermal-receipt preview for the last settled sale, with exports to disk
 /// next to the ledger: `.txt` (rendered text) and `.bin` (ESC/POS bytes).
-struct ReceiptDialog {
+pub(crate) struct ReceiptDialog {
     sale: Option<Sale>,
     store: StoreInfo,
     currency: &'static Currency,
@@ -1353,7 +1407,7 @@ struct ReceiptDialog {
 }
 
 impl ReceiptDialog {
-    fn new(receipts_dir: Option<PathBuf>, currency: &'static Currency) -> Self {
+    pub(crate) fn new(receipts_dir: Option<PathBuf>, currency: &'static Currency) -> Self {
         Self {
             sale: None,
             store: StoreInfo::named("Kaseer"),
@@ -1362,9 +1416,20 @@ impl ReceiptDialog {
         }
     }
 
-    fn show(&mut self, sale: Sale, store: StoreInfo) {
+    pub(crate) fn show(&mut self, sale: Sale, store: StoreInfo) {
         self.sale = Some(sale);
         self.store = store;
+    }
+
+    /// Drop the shown sale (a fresh training run starts clean).
+    pub(crate) fn clear(&mut self) {
+        self.sale = None;
+    }
+
+    /// The shown sale, if any — the training screen re-opens the paper for
+    /// its receipt lesson.
+    pub(crate) fn sale(&self) -> Option<Sale> {
+        self.sale.clone()
     }
 
     fn write_receipt(
@@ -1533,7 +1598,10 @@ impl Render for ReceiptDialog {
                         Button::new("receipt-new-sale")
                             .primary()
                             .label("New sale")
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                            .on_click(cx.listener(|_, _, window, cx| {
+                                cx.emit(ReceiptEvent::Closed);
+                                window.close_dialog(cx);
+                            })),
                     ),
             )
     }
@@ -1543,10 +1611,12 @@ impl Render for ReceiptDialog {
 
 /// A customer picker row: identified by the customer id, displayed by name.
 /// The empty id is the Walk-in option (the web select's `<option value="">`).
+/// `pub(crate)`: the training screen reuses the picker for its
+/// attach-customer lesson.
 #[derive(Clone, PartialEq, Eq)]
-struct CustomerItem {
-    id: String,
-    label: String,
+pub(crate) struct CustomerItem {
+    pub(crate) id: String,
+    pub(crate) label: String,
 }
 
 impl SearchableListItem for CustomerItem {
@@ -1561,7 +1631,7 @@ impl SearchableListItem for CustomerItem {
     }
 }
 
-fn customer_items(customers: &[Customer]) -> Vec<CustomerItem> {
+pub(crate) fn customer_items(customers: &[Customer]) -> Vec<CustomerItem> {
     let mut items = vec![CustomerItem {
         id: String::new(),
         label: "Walk-in".to_string(),
@@ -1575,7 +1645,77 @@ fn customer_items(customers: &[Customer]) -> Vec<CustomerItem> {
 
 // ── Small helpers ─────────────────────────────────────────────────────────
 
-fn fmt_money(minor: i64, currency: &Currency) -> String {
+/// A product carries knowledge when any of the read-only peek fields is
+/// filled — the web `hasKnowledge` contract decides the corner affordance.
+pub(crate) fn has_knowledge(product: &Product) -> bool {
+    !product.description.is_empty()
+        || !product.prep_notes.is_empty()
+        || !product.allergens.is_empty()
+}
+
+/// The web `.kpopover` body: name, description, then Prep and Allergens
+/// under uppercase kickers. Read-only; 290px like the web width. Takes
+/// colors by value so the returned element borrows nothing (popover
+/// content closures must return owned elements).
+fn knowledge_peek_card(product: Product, muted: Hsla, foreground: Hsla) -> impl IntoElement {
+    v_flex()
+        .w(px(290.))
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(12.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(SharedString::from(product.name.clone())),
+        )
+        .when(!product.description.is_empty(), |card| {
+            card.child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(foreground)
+                    .child(SharedString::from(product.description.clone())),
+            )
+        })
+        .when(!product.prep_notes.is_empty(), |card| {
+            card.child(
+                v_flex()
+                    .gap_0p5()
+                    .mt_1()
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(muted)
+                            .child("PREP"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .child(SharedString::from(product.prep_notes.clone())),
+                    ),
+            )
+        })
+        .when(!product.allergens.is_empty(), |card| {
+            card.child(
+                v_flex()
+                    .gap_0p5()
+                    .mt_1()
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(muted)
+                            .child("ALLERGENS"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .child(SharedString::from(product.allergens.clone())),
+                    ),
+            )
+        })
+}
+
+pub(crate) fn fmt_money(minor: i64, currency: &Currency) -> String {
     money::format(&money::money(minor, currency.code), Some(currency)).unwrap_or_default()
 }
 
@@ -1599,7 +1739,7 @@ fn stock_map(repo: &Repo, products: &[Product]) -> HashMap<String, i64> {
         .collect()
 }
 
-fn unix_nanos() -> u128 {
+pub(crate) fn unix_nanos() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock is after the unix epoch")
@@ -1609,7 +1749,7 @@ fn unix_nanos() -> u128 {
 /// Wall-clock UTC in the same ISO-8601 shape the web app posts
 /// (`2026-09-27T08:15:42.123Z`). The app crate owns no chrono dependency,
 /// so the civil-date conversion lives here (Howard Hinnant's algorithm).
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     let since_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock is after the unix epoch");

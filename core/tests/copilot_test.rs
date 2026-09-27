@@ -36,6 +36,10 @@ fn upsert_test_product(repo: &Repo, id: &str, sku: &str, name: &str, track_stock
         track_stock,
         low_stock_at: 5,
         archived: false,
+        description: String::new(),
+        prep_notes: String::new(),
+        allergens: String::new(),
+        route_kitchen: false,
     };
     repo.upsert_product(&product).unwrap();
     product

@@ -74,6 +74,20 @@ pub struct Product {
     pub track_stock: bool,
     pub low_stock_at: i64,
     pub archived: bool,
+    /// Knowledge slice (schema v3, shared with the web companion).
+    pub description: String,
+    pub prep_notes: String,
+    pub allergens: String,
+    pub route_kitchen: bool,
+}
+
+/// Editable slice of [`Product`] knowledge; `None` keys keep their value.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct KnowledgePatch {
+    pub description: Option<String>,
+    pub prep_notes: Option<String>,
+    pub allergens: Option<String>,
+    pub route_kitchen: Option<bool>,
 }
 
 impl Product {
@@ -194,8 +208,7 @@ impl Repo {
 
     // ── Catalog ───────────────────────────────────────────────────────────
 
-    const PRODUCT_COLS: &'static str =
-        "id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived";
+    const PRODUCT_COLS: &'static str = "id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived, description, prep_notes, allergens, route_kitchen";
 
     pub fn products(&self, include_archived: bool, query: Option<&str>) -> Result<Vec<Product>> {
         let query = query.map(str::trim).filter(|q| !q.is_empty()).map(str::to_lowercase);
@@ -229,14 +242,47 @@ impl Repo {
 
     pub fn upsert_product(&self, p: &Product) -> Result<Product> {
         self.conn.execute(
-            "INSERT INTO products (id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO products (id, sku, name, category, price_minor, cost_minor, tax_rate_id, track_stock, low_stock_at, archived,
+               description, prep_notes, allergens, route_kitchen)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET sku = excluded.sku, name = excluded.name, category = excluded.category,
                price_minor = excluded.price_minor, cost_minor = excluded.cost_minor, tax_rate_id = excluded.tax_rate_id,
-               track_stock = excluded.track_stock, low_stock_at = excluded.low_stock_at, archived = excluded.archived",
-            params![p.id, p.sku, p.name, p.category, p.price_minor, p.cost_minor, p.tax_rate_id, p.track_stock as i64, p.low_stock_at, p.archived as i64],
+               track_stock = excluded.track_stock, low_stock_at = excluded.low_stock_at, archived = excluded.archived,
+               description = excluded.description, prep_notes = excluded.prep_notes, allergens = excluded.allergens,
+               route_kitchen = excluded.route_kitchen",
+            params![p.id, p.sku, p.name, p.category, p.price_minor, p.cost_minor, p.tax_rate_id, p.track_stock as i64, p.low_stock_at, p.archived as i64, p.description, p.prep_notes, p.allergens, p.route_kitchen as i64],
         )?;
         Ok(p.clone())
+    }
+
+    /// Patch the knowledge slice of one product; unknown ids raise.
+    pub fn update_knowledge(&self, product_id: &str, patch: &KnowledgePatch) -> Result<Product> {
+        let Some(current) = self.product_by_id(product_id)? else {
+            return Err(RepoError::NotFound(format!("product {product_id} not found")));
+        };
+        let next = KnowledgePatch {
+            description: patch.description.clone().or_else(|| Some(current.description.clone())),
+            prep_notes: patch.prep_notes.clone().or_else(|| Some(current.prep_notes.clone())),
+            allergens: patch.allergens.clone().or_else(|| Some(current.allergens.clone())),
+            route_kitchen: patch.route_kitchen.or(Some(current.route_kitchen)),
+        };
+        self.conn.execute(
+            "UPDATE products SET description = ?, prep_notes = ?, allergens = ?, route_kitchen = ? WHERE id = ?",
+            params![
+                next.description.clone().unwrap_or_default(),
+                next.prep_notes.clone().unwrap_or_default(),
+                next.allergens.clone().unwrap_or_default(),
+                next.route_kitchen.unwrap_or(false) as i64,
+                product_id
+            ],
+        )?;
+        Ok(Product {
+            description: next.description.unwrap_or_default(),
+            prep_notes: next.prep_notes.unwrap_or_default(),
+            allergens: next.allergens.unwrap_or_default(),
+            route_kitchen: next.route_kitchen.unwrap_or(false),
+            ..current
+        })
     }
 
     pub fn categories(&self) -> Result<Vec<String>> {
@@ -749,6 +795,10 @@ fn row_to_product(row: &rusqlite::Row) -> rusqlite::Result<Product> {
         track_stock: row.get::<_, i64>(7)? == 1,
         low_stock_at: row.get(8)?,
         archived: row.get::<_, i64>(9)? == 1,
+        description: row.get(10)?,
+        prep_notes: row.get(11)?,
+        allergens: row.get(12)?,
+        route_kitchen: row.get::<_, i64>(13)? == 1,
     })
 }
 

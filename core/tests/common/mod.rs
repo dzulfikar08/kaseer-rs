@@ -116,6 +116,10 @@ pub fn catalog_product(id: &str, name: &str, track_stock: bool) -> Product {
         track_stock,
         low_stock_at: 0,
         archived: false,
+        description: String::new(),
+        prep_notes: String::new(),
+        allergens: String::new(),
+        route_kitchen: false,
     }
 }
 

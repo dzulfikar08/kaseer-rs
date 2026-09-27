@@ -10,7 +10,7 @@ use uuid::Uuid;
 use kaseer_core::db::open_repo;
 use kaseer_core::payments::TenderMethod;
 use kaseer_core::receipt::{Sale, SaleLine, SaleTender};
-use kaseer_core::repos::RepoError;
+use kaseer_core::repos::{KnowledgePatch, RepoError};
 
 fn fixture_sale(number: &str, at: &str, customer_id: Option<&str>, total_minor: i64) -> Sale {
     Sale {
@@ -134,4 +134,178 @@ fn file_mode_opens_and_seeds_a_dedicated_test_db() {
     assert_eq!(repo.products(false, None).unwrap().len(), 24);
     assert_eq!(repo.settings().unwrap().store_name, "Kaseer Demo Store");
     assert!(path.exists());
+}
+
+/// A v2-shaped ledger as the web companion and the terminal left it before
+/// schema v3: the v1 catalog (pinned here — migrations must never rewrite
+/// it) plus the two v2 columns. `migrate` then walks 2→3 over these rows.
+fn v2_fixture_conn(dir: &tempfile::TempDir) -> rusqlite::Connection {
+    let path = dir.path().join("v2-ledger.db");
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE settings (
+           id INTEGER PRIMARY KEY CHECK (id = 1),
+           store_name TEXT NOT NULL,
+           address TEXT NOT NULL DEFAULT '',
+           receipt_footer TEXT NOT NULL DEFAULT '',
+           currency_code TEXT NOT NULL,
+           loyalty_json TEXT NOT NULL,
+           config_json TEXT NOT NULL DEFAULT '{}'
+         );
+         CREATE TABLE tax_rates (
+           id TEXT PRIMARY KEY, name TEXT NOT NULL, bps INTEGER NOT NULL, inclusive INTEGER NOT NULL
+         );
+         CREATE TABLE products (
+           id TEXT PRIMARY KEY,
+           sku TEXT NOT NULL UNIQUE,
+           name TEXT NOT NULL,
+           category TEXT NOT NULL DEFAULT '',
+           price_minor INTEGER NOT NULL,
+           cost_minor INTEGER NOT NULL DEFAULT 0,
+           tax_rate_id TEXT REFERENCES tax_rates(id),
+           track_stock INTEGER NOT NULL DEFAULT 1,
+           low_stock_at INTEGER NOT NULL DEFAULT 0,
+           archived INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE sales (
+           id TEXT PRIMARY KEY,
+           number TEXT NOT NULL UNIQUE,
+           at TEXT NOT NULL,
+           currency TEXT NOT NULL,
+           shift_id TEXT,
+           customer_id TEXT,
+           customer_name_snapshot TEXT,
+           gross_minor INTEGER NOT NULL,
+           discount_minor INTEGER NOT NULL,
+           net_minor INTEGER NOT NULL,
+           tax_minor INTEGER NOT NULL,
+           total_minor INTEGER NOT NULL,
+           change_minor INTEGER NOT NULL,
+           points_earned INTEGER NOT NULL DEFAULT 0,
+           points_redeemed INTEGER NOT NULL DEFAULT 0,
+           tax_by_rate_json TEXT NOT NULL DEFAULT '{}'
+         );
+         INSERT INTO settings (id, store_name, currency_code, loyalty_json) VALUES (1, 'V2 Store', 'IDR', '{}');
+         INSERT INTO products (id, sku, name, category, price_minor) VALUES
+           ('p-americano', '8991002100028', 'Americano', 'Coffee', 15000),
+           ('p-rice', '9999999999999', 'Not Seeded', 'Food', 12000);
+         PRAGMA user_version = 2;",
+    )
+    .unwrap();
+    conn
+}
+
+#[test]
+fn migration_v2_to_v3_preserves_rows_and_seeds_knowledge_and_kitchen_tables() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = v2_fixture_conn(&dir);
+    kaseer_core::db::migrate(&conn).unwrap();
+
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(version, 3);
+
+    // Both pre-existing rows survive untouched apart from the new columns.
+    let (n, non_seeded): (i64, String) = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE((SELECT description FROM products WHERE sku = '9999999999999'), 'missing') FROM products",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(n, 2);
+    assert_eq!(non_seeded, "");
+
+    // The prepared SKU gets exactly the web companion's demo copy.
+    let (description, prep, allergens, routed): (String, String, String, i64) = conn
+        .query_row(
+            "SELECT description, prep_notes, allergens, route_kitchen FROM products WHERE sku = '8991002100028'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(description, "Double shot of espresso lengthened with hot water. Served black.");
+    assert_eq!(prep, "Pull 2 shots, add hot water to the 8oz line. Serve immediately.");
+    assert_eq!(allergens, "none");
+    assert_eq!(routed, 1);
+
+    // Kitchen tables exist for the web companion even though the terminal
+    // never writes them.
+    for table in ["kitchen_tickets", "kitchen_ticket_items"] {
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [table],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1, "{table} must exist after v3");
+    }
+}
+
+#[test]
+fn fresh_ledger_seeds_the_same_knowledge_as_the_web_companion() {
+    let repo = open_repo(":memory:").unwrap();
+    let americano = repo
+        .products(false, None)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.sku == "8991002100028")
+        .unwrap();
+    assert_eq!(
+        americano.description,
+        "Double shot of espresso lengthened with hot water. Served black."
+    );
+    assert_eq!(americano.prep_notes, "Pull 2 shots, add hot water to the 8oz line. Serve immediately.");
+    assert_eq!(americano.allergens, "none");
+    assert!(americano.route_kitchen);
+
+    for sku in ["8991002100011", "8991002101018", "8991002101025", "8991002101032", "8991002101049", "8991002102017"] {
+        let p = repo
+            .products(false, None)
+            .unwrap()
+            .into_iter()
+            .find(|p| p.sku == sku)
+            .unwrap_or_else(|| panic!("{sku} must be in the seed catalog"));
+        assert!(p.route_kitchen, "{sku} must route to the kitchen");
+        assert!(!p.description.is_empty());
+    }
+
+    // Groceries stay knowledge-free.
+    let rice = repo
+        .products(false, None)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.sku == "8991002104015")
+        .unwrap();
+    assert!(!rice.route_kitchen);
+    assert_eq!(rice.description, "");
+}
+
+#[test]
+fn update_knowledge_merges_the_patch_and_unknown_ids_error() {
+    let repo = open_repo(":memory:").unwrap();
+    let americano_id = repo
+        .products(false, None)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.sku == "8991002100028")
+        .unwrap()
+        .id;
+
+    // A partial patch keeps every omitted field at its seeded value.
+    let updated = repo
+        .update_knowledge(&americano_id, &KnowledgePatch { prep_notes: Some("Test pull one shot.".into()), ..Default::default() })
+        .unwrap();
+    assert_eq!(updated.prep_notes, "Test pull one shot.");
+    assert_eq!(updated.description, "Double shot of espresso lengthened with hot water. Served black.");
+    assert_eq!(updated.allergens, "none");
+    assert!(updated.route_kitchen);
+
+    // The stored row matches, including the untouched fields.
+    let stored = repo.product_by_id(&americano_id).unwrap().unwrap();
+    assert_eq!(stored.prep_notes, "Test pull one shot.");
+    assert!(stored.route_kitchen);
+
+    let unknown = repo.update_knowledge("no-such-id", &KnowledgePatch::default());
+    assert!(matches!(unknown, Err(RepoError::NotFound(_))));
 }
