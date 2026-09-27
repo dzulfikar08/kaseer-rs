@@ -22,11 +22,9 @@ use crate::screens::{
     CustomersScreen, InventoryScreen, RegisterScreen, ReportsScreen, SettingsScreen, ShiftScreen,
 };
 
-/// One navigation entry: the shell's screen identity.
-///
-/// Dashboard, Campaigns, and Copilot moved to the web companion; their
-/// screen modules are compiled out of this app (the source files stay only
-/// until the next crew deletes them).
+/// One navigation entry: the shell's screen identity. Dashboard,
+/// Campaigns, and Copilot moved to the web companion and are deleted
+/// from this app.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NavItem {
     Register,
@@ -51,7 +49,7 @@ const NAV_ITEMS: &[NavItem] = &[
 
 /// Inert rail placeholders under the live items: two screens are queued to
 /// move back from the web companion, and the slots hold their place.
-const FUTURE_SLOT_LABELS: &[&str] = &["Soon", "Soon"];
+const FUTURE_SLOT_LABELS: &[&str] = &["Training", "Knowledge"];
 
 impl NavItem {
     fn label(self) -> &'static str {
