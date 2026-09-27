@@ -36,7 +36,10 @@ impl AssetSource for AppAssets {
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut paths = gpui_kit::assets::AllAssets.list(path)?;
-        for font in ["fonts/IBMPlexSans-Regular.ttf", "fonts/IBMPlexSans-SemiBold.ttf"] {
+        for font in [
+            "fonts/IBMPlexSans-Regular.ttf",
+            "fonts/IBMPlexSans-SemiBold.ttf",
+        ] {
             if font.starts_with(path) {
                 paths.push(font.into());
             }
@@ -45,7 +48,44 @@ impl AssetSource for AppAssets {
     }
 }
 
+/// Field kiosks must leave crash traces: every panic appends timestamp,
+/// message, location, and a full backtrace to `<data dir>/crash.log`
+/// (best-effort — a broken data dir must not turn a panic into a
+/// double fault).
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let stamp = kaseer_core::chrono::Utc::now()
+            .to_rfc3339_opts(kaseer_core::chrono::SecondsFormat::Millis, true);
+        let location = info
+            .location()
+            .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let report = format!(
+            "===== {stamp} panic at {location} =====\n{info}\n{}\n",
+            std::backtrace::Backtrace::force_capture()
+        );
+        let log = std::path::Path::new(&kaseer_core::db::resolve_db_path())
+            .parent()
+            .map(|dir| dir.join("crash.log"));
+        if let Some(log) = log {
+            if let Some(dir) = log.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log)
+            {
+                use std::io::Write as _;
+                let _ = file.write_all(report.as_bytes());
+            }
+        }
+        eprintln!("{report}");
+    }));
+}
+
 fn main() {
+    install_panic_hook();
     gpui_kit::application()
         // AppAssets: the full Lucide catalog plus the embedded fonts. The
         // default `Assets` bundle serves only the 101 component icons,
@@ -77,14 +117,17 @@ fn main() {
             };
 
             cx.spawn(async move |cx| {
-                let window = cx
-                    .open_window(options, |window, cx| {
-                        let view = cx.new(|cx| shell::AppShell::new(window, cx));
-                        // First level on the window is Root: overlays, menus,
-                        // notifications, focus traps.
-                        cx.new(|cx| Root::new(view, window, cx))
-                    })
-                    .expect("failed to open the Kaseer window");
+                cx.open_window(options, |window, cx| {
+                    // Toast pump: a window-attached task drains the
+                    // background loops' queued notifications outside
+                    // any update cycle (see kiosk::install_toast_pump).
+                    kiosk::install_toast_pump(window, cx);
+                    let view = cx.new(|cx| shell::AppShell::new(window, cx));
+                    // First level on the window is Root: overlays, menus,
+                    // notifications, focus traps.
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .expect("failed to open the Kaseer window");
 
                 // Cloud sync: drain whatever the last session left queued
                 // (respects the failure backoff window; see sync_client).
@@ -101,7 +144,7 @@ fn main() {
                 // Kiosk presence + auto-update: heartbeat at boot and every
                 // 5 minutes, update check at boot and every 6 hours. This
                 // await is the process's lifetime (see kiosk).
-                kiosk::kiosk_loop(cx, window).await;
+                kiosk::kiosk_loop(cx).await;
             })
             .detach();
         });

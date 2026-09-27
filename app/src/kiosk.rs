@@ -18,12 +18,12 @@
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
-use gpui_kit::component::notification::Notification;
-use gpui_kit::component::Root;
 use gpui_kit::component::WindowExt as _;
-use gpui_kit::{AsyncApp, WindowHandle};
+use gpui_kit::component::notification::Notification;
+use gpui_kit::{App, AsyncApp, Window};
 use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::sync::{self, Outbox};
 use sha2::{Digest, Sha256};
@@ -212,7 +212,8 @@ pub fn enroll(base_url: &str, pairing_code: &str) -> Result<KioskIdentity, Strin
             .to_string(),
         name: device_name(),
     };
-    let stored = outbox.meta_set(KEY_DEVICE_TOKEN, &identity.device_token)
+    let stored = outbox
+        .meta_set(KEY_DEVICE_TOKEN, &identity.device_token)
         .and_then(|_| outbox.meta_set(KEY_KIOSK_ID, &identity.kiosk_id))
         .and_then(|_| outbox.meta_set(KEY_STORE_ID, &identity.store_id))
         .and_then(|_| outbox.meta_set(KEY_KIOSK_NAME, &identity.name))
@@ -269,7 +270,11 @@ fn cloud_base(outbox: &Outbox) -> String {
 /// manifest carries. Pre-release/build suffixes are ignored: a kiosk
 /// tracks the stable channel.
 fn parse_semver(version: &str) -> Option<(u64, u64, u64)> {
-    let core = version.trim().trim_start_matches('v').split(['-', '+']).next()?;
+    let core = version
+        .trim()
+        .trim_start_matches('v')
+        .split(['-', '+'])
+        .next()?;
     let mut parts = core.split('.');
     let major = parts.next()?.parse().ok()?;
     let minor = parts.next()?.parse().ok()?;
@@ -346,6 +351,13 @@ pub fn check_for_update() -> Result<Option<String>, String> {
         .get("url")
         .and_then(serde_json::Value::as_str)
         .ok_or("update manifest missing url")?;
+    // The manifest may hand out either an absolute URL or a path under
+    // the same cloud; only the latter needs the base prepended.
+    let url = if url.starts_with("http://") || url.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("{base}{url}")
+    };
     let expected_sha = wire
         .get("sha256")
         .and_then(serde_json::Value::as_str)
@@ -360,7 +372,7 @@ pub fn check_for_update() -> Result<Option<String>, String> {
         return Ok(None);
     }
 
-    let release = http.get(url, Some(&identity.device_token))?;
+    let release = http.get(&url, Some(&identity.device_token))?;
     if release.is_empty() {
         return Err("update download is empty".to_string());
     }
@@ -386,8 +398,7 @@ pub fn check_for_update() -> Result<Option<String>, String> {
 /// final rename is atomic and never EXDEVs from the data dir), +x, rename.
 fn install(release: &[u8]) -> Result<(), String> {
     let targets = update_targets()?;
-    std::fs::write(&targets.staging, release)
-        .map_err(|e| format!("staging write: {e}"))?;
+    std::fs::write(&targets.staging, release).map_err(|e| format!("staging write: {e}"))?;
     let beside = targets
         .current
         .parent()
@@ -395,26 +406,58 @@ fn install(release: &[u8]) -> Result<(), String> {
         .join("kaseer.new");
     let install = std::fs::copy(&targets.staging, &beside)
         .map(|_| ())
-        .and_then(|_| {
-            std::fs::set_permissions(&beside, std::fs::Permissions::from_mode(0o755))
-        })
+        .and_then(|_| std::fs::set_permissions(&beside, std::fs::Permissions::from_mode(0o755)))
         .and_then(|_| std::fs::rename(&beside, &targets.current));
     let _ = std::fs::remove_file(&targets.staging);
     install.map_err(|e| format!("binary swap: {e}"))
 }
 
-/// Update checks run on the background executor; the toast is the one
-/// bit of UI they own (via the main window handle).
-fn toast_update(window: &WindowHandle<Root>, cx: &mut AsyncApp, version: &str) {
-    let message = format!("Update {version} installed — restart to apply");
-    let _ = window.update(cx, |_, window, cx| {
-        window.push_notification(Notification::success(message), cx);
-    });
+/// Update checks run on a foreground async task; their resumptions can
+/// land inside the window's update cycle (a timer waking during the boot
+/// menu apply's flush), so touching `Root` from here re-enters an entity
+/// mid-update and panics. The toast therefore only queues, and a
+/// window-attached pump (see [`install_toast_pump`]) delivers it outside
+/// any update cycle.
+static PENDING_TOAST: Mutex<Option<String>> = Mutex::new(None);
+
+fn queue_toast(message: String) {
+    if let Ok(mut slot) = PENDING_TOAST.lock() {
+        *slot = Some(message);
+    }
 }
 
-fn run_update_check(window: &WindowHandle<Root>, cx: &mut AsyncApp) {
+/// The oldest queued toast, if any (drained by the pump in main.rs).
+pub fn take_pending_toast() -> Option<String> {
+    PENDING_TOAST.lock().ok().and_then(|mut slot| slot.take())
+}
+
+/// Delivers queued toasts from a task attached to the window itself:
+/// `Window::spawn` tasks are scheduled outside the window's update
+/// cycles, so their updates can never re-enter `Root` mid-flush. Runs
+/// for the window's lifetime; exits silently when the window closes.
+pub fn install_toast_pump(window: &Window, cx: &App) {
+    let bg = cx.background_executor().clone();
+    window
+        .spawn(cx, async move |cx| {
+            loop {
+                bg.timer(Duration::from_secs(1)).await;
+                let Some(message) = take_pending_toast() else {
+                    continue;
+                };
+                let delivered = cx.update(|window, cx| {
+                    window.push_notification(Notification::success(message), cx);
+                });
+                if delivered.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+}
+
+fn run_update_check() {
     match check_for_update() {
-        Ok(Some(version)) => toast_update(window, cx, &version),
+        Ok(Some(version)) => queue_toast(format!("Update {version} installed — restart to apply")),
         Ok(None) => {}
         Err(error) => eprintln!("[kiosk] update check failed: {error}"),
     }
@@ -423,8 +466,10 @@ fn run_update_check(window: &WindowHandle<Root>, cx: &mut AsyncApp) {
 /// The forever loop, awaited by main for the process's lifetime: a boot
 /// heartbeat and boot update check, then heartbeats every
 /// [`HEARTBEAT_INTERVAL`] and update checks every [`UPDATE_INTERVAL`].
-/// Everything inside skips itself while the terminal is not enrolled.
-pub async fn kiosk_loop(cx: &mut AsyncApp, window: WindowHandle<Root>) {
+/// Everything inside skips itself while the terminal is not enrolled,
+/// and nothing here touches the UI — results travel through the outbox
+/// meta table and the toast queue.
+pub async fn kiosk_loop(cx: &mut AsyncApp) {
     let bg = cx.background_executor().clone();
     let mut next_heartbeat = std::time::Instant::now();
     let mut next_update = next_heartbeat;
@@ -436,7 +481,7 @@ pub async fn kiosk_loop(cx: &mut AsyncApp, window: WindowHandle<Root>) {
             next_heartbeat += HEARTBEAT_INTERVAL;
         }
         if std::time::Instant::now() >= next_update {
-            run_update_check(&window, cx);
+            run_update_check();
             next_update += UPDATE_INTERVAL;
         }
         let wait = next_heartbeat
@@ -467,6 +512,9 @@ mod tests {
         // The manifest keys releases by this string; the contract's
         // example is x86_64-linux.
         assert!(arch().ends_with("-linux"));
-        assert_eq!(arch(), format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS));
+        assert_eq!(
+            arch(),
+            format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
+        );
     }
 }
