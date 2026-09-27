@@ -84,6 +84,13 @@ pub struct SettingsScreen {
     menu_url: Entity<InputState>,
     menu_in_flight: bool,
     menu_message: Option<String>,
+    /// Cloud kiosk: enrollment lives in the same outbox meta table. The
+    /// pairing code is one-shot and never persisted; the device token the
+    /// cloud returns is write-only (never rendered again).
+    enroll_url: Entity<InputState>,
+    pairing_code: Entity<InputState>,
+    enroll_in_flight: bool,
+    enroll_message: Option<String>,
 }
 
 impl SettingsScreen {
@@ -145,6 +152,7 @@ impl SettingsScreen {
             .filter(|url| !url.trim().is_empty())
             .unwrap_or_else(crate::menu_sync::default_companion_url);
         let menu_url = text_input(window, cx, &menu_url_value, crate::menu_sync::DEFAULT_COMPANION_URL);
+        let pairing_code = text_input(window, cx, "", "6-digit code");
 
         let mut this = Self {
             repo,
@@ -169,6 +177,10 @@ impl SettingsScreen {
             menu_url,
             menu_in_flight: false,
             menu_message: None,
+            enroll_url: text_input(window, cx, &crate::kiosk::default_enroll_url(), "https://kaseer-cloud…"),
+            pairing_code,
+            enroll_in_flight: false,
+            enroll_message: None,
         };
 
         this._subscriptions.push(cx.subscribe_in(
@@ -420,6 +432,76 @@ impl SettingsScreen {
         .detach();
     }
 
+    /// The enrolled device identity, read fresh from the outbox meta.
+    fn kiosk_identity(&self) -> Option<crate::kiosk::KioskIdentity> {
+        self.outbox
+            .as_ref()
+            .and_then(crate::kiosk::KioskIdentity::from_outbox)
+    }
+
+    /// Pairing-code enrollment on the background executor: exchanges the
+    /// one-shot code for a device token (stored write-only), then beats a
+    /// first heartbeat and pulls the cloud menu so the register switches
+    /// sources immediately.
+    fn enroll_now(&mut self, cx: &mut Context<Self>) {
+        if self.enroll_in_flight {
+            return;
+        }
+        let base_url = self.enroll_url.read(cx).value().trim().to_string();
+        let pairing_code = self.pairing_code.read(cx).value().trim().to_string();
+        if pairing_code.len() != 6 || !pairing_code.chars().all(|c| c.is_ascii_digit()) {
+            self.enroll_message = Some("Pairing code is the 6 digits from the cloud console.".to_string());
+            cx.notify();
+            return;
+        }
+        self.enroll_in_flight = true;
+        self.enroll_message = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    crate::kiosk::enroll(&base_url, &pairing_code).inspect(|_| {
+                        // First beat + first pull land before the Settings
+                        // line even repaints; both are best-effort.
+                        let _ = crate::kiosk::heartbeat();
+                        crate::menu_sync::poll_once();
+                    })
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.enroll_in_flight = false;
+                match result {
+                    Ok(identity) => {
+                        // The pairing code is one-shot and now dead; it is
+                        // left in the field only as a receipt of what was
+                        // consumed — never stored anywhere.
+                        this.enroll_message = Some(format!("Enrolled as {}.", identity.name));
+                    }
+                    Err(error) => {
+                        this.enroll_message = Some(format!("Enroll failed: {error}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Revocation clears the local identity only: the terminal falls back
+    /// to store-token sync and LAN-companion menus; the cloud record stays
+    /// for the owner to retire.
+    fn revoke_now(&mut self, cx: &mut Context<Self>) {
+        match crate::kiosk::revoke() {
+            Ok(()) => {
+                self.enroll_message = Some("Kiosk revoked — this terminal is no longer enrolled.".to_string());
+                crate::menu_sync::poll_once();
+            }
+            Err(error) => self.enroll_message = Some(format!("Revoke failed: {error}")),
+        }
+        cx.notify();
+    }
+
     fn toast_ok(window: &mut Window, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         window.push_notification(Notification::success(message), cx);
     }
@@ -499,6 +581,10 @@ impl Render for SettingsScreen {
                     .gap_3()
                     .child(self.render_profile_row(cx))
                     .child(self.render_save_row(cx))
+                    // The kiosk card sits above the owner config: enrollment,
+                    // heartbeat, and update state are what a terminal operator
+                    // needs at a glance (and the 840px viewport shows it first).
+                    .child(self.render_kiosk_panel(cx))
                     .child(self.render_tax_panel(cx))
                     .child(self.render_sync_panel(cx)),
             )
@@ -852,11 +938,13 @@ impl SettingsScreen {
             .child(self.render_menu_section(cx))
     }
 
-    /// The menu pull section, inside the sync card: companion endpoint,
-    /// last-pull stamp, and the manual pull. The companion is the menu's
-    /// source of truth; this terminal only polls and converges.
+    /// The menu pull section, inside the sync card: the active source's
+    /// status line and the manual pull. Enrolled kiosks pull from the
+    /// cloud with the device token (10s cadence) and never see the
+    /// companion field; everyone else configures the LAN companion.
     fn render_menu_section(&self, cx: &Context<Self>) -> impl IntoElement {
         let (last_pull, last_error) = self.menu_status();
+        let enrolled = self.kiosk_identity().is_some();
         v_flex()
             .gap_3()
             .border_t_1()
@@ -873,14 +961,19 @@ impl SettingsScreen {
                             .text_size(px(12.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().muted_foreground)
-                            .child("MENU (COMPANION)"),
+                            .child(if enrolled { "MENU (CLOUD)" } else { "MENU (COMPANION)" }),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(format!(
-                                "last pull {}",
+                                "Menu source: {} · last pull {}",
+                                if enrolled {
+                                    "Cloud (enrolled), polls every 10s"
+                                } else {
+                                    "LAN companion, polls every 30s"
+                                },
                                 last_pull
                                     .as_deref()
                                     .map(short_time)
@@ -896,19 +989,21 @@ impl SettingsScreen {
                         .child(SharedString::from(format!("Last error: {error}"))),
                 )
             })
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_64()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Menu source (companion)"),
-                    )
-                    .child(Input::new(&self.menu_url)),
-            )
+            .when(!enrolled, |section| {
+                section.child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_64()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("Menu source (companion)"),
+                        )
+                        .child(Input::new(&self.menu_url)),
+                )
+            })
             .child(
                 h_flex()
                     .w_full()
@@ -936,6 +1031,213 @@ impl SettingsScreen {
                             .disabled(self.menu_in_flight || self.outbox.is_none())
                             .on_click(cx.listener(|this, _, _, cx| this.pull_menu_now(cx))),
                     ),
+            )
+    }
+
+    /// The cloud kiosk card: pairing-code enrollment before the terminal
+    /// has an identity; kiosk name, store, last heartbeat, and pending
+    /// sales once it has one. Ends with the About line and the update
+    /// banner the background updater flips on.
+    fn render_kiosk_panel(&self, cx: &Context<Self>) -> impl IntoElement {
+        let pending = self.sync_status().0;
+        let identity = self.kiosk_identity();
+        let enrolled = identity.is_some();
+        let last_heartbeat = self
+            .outbox
+            .as_ref()
+            .and_then(|outbox| outbox.meta_get("kiosk_last_heartbeat"));
+        let update_pending = self
+            .outbox
+            .as_ref()
+            .and_then(|outbox| outbox.meta_get("update_pending"));
+
+        v_flex()
+            .gap_3()
+            .p(px(14.))
+            .rounded(crate::theme::CARD_RADIUS)
+            .bg(cx.theme().secondary)
+            .border_1()
+            .border_color(cx.theme().border)
+            .child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("KASEER CLOUD"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(format!(
+                                "{pending} sales pending sync · device token stays on this device",
+                            ))),
+                    ),
+            )
+            .when_some(update_pending, |panel, version| {
+                panel.child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(SharedString::from(format!(
+                            "Update {version} installed — restart to apply."
+                        ))),
+                )
+            })
+            .when(enrolled, |panel| {
+                let identity = identity.clone().unwrap();
+                let heartbeat = last_heartbeat
+                    .clone()
+                    .map(|iso| short_time(&iso))
+                    .unwrap_or_else(|| "never".to_string());
+                panel
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(SharedString::from(format!(
+                                "Enrolled as {}",
+                                identity.name,
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(format!(
+                                "Store {} · kiosk {} · last heartbeat {} · menu from cloud",
+                                identity.store_id, identity.kiosk_id, heartbeat,
+                            ))),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .items_center()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(SharedString::from(
+                                        self.enroll_message
+                                            .clone()
+                                            .unwrap_or_else(|| {
+                                                "Sales, menu, and knowledge flow through the cloud."
+                                                    .to_string()
+                                            }),
+                                    )),
+                            )
+                            .child(
+                                Button::new("kiosk-revoke")
+                                    .label("Revoke")
+                                    .disabled(self.enroll_in_flight)
+                                    .on_click(cx.listener(|this, _, _, cx| this.revoke_now(cx))),
+                            ),
+                    )
+            })
+            .when(!enrolled, |panel| {
+                panel
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(
+                                "Connect to Kaseer Cloud: create a kiosk on the cloud console, then enter its 6-digit pairing code here.",
+                            )),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_start()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_64()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Cloud URL"),
+                                    )
+                                    .child(Input::new(&self.enroll_url)),
+                            )
+                            .child(
+                                v_flex()
+                                    .min_w_32()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Pairing code"),
+                                    )
+                                    .child(Input::new(&self.pairing_code).small()),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .items_center()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(
+                                        if self.enroll_message.as_deref().is_some_and(|m| m.starts_with("Enroll failed")) {
+                                            cx.theme().danger
+                                        } else {
+                                            cx.theme().muted_foreground
+                                        },
+                                    )
+                                    .child(SharedString::from(
+                                        self.enroll_message
+                                            .clone()
+                                            .unwrap_or_else(|| {
+                                                format!(
+                                                    "Default: KASEER_CLOUD_URL or {}.",
+                                                    crate::kiosk::DEFAULT_CLOUD_URL
+                                                )
+                                            }),
+                                    )),
+                            )
+                            .child(
+                                Button::new("kiosk-enroll")
+                                    .label(if self.enroll_in_flight {
+                                        "Enrolling…"
+                                    } else {
+                                        "Enroll kiosk"
+                                    })
+                                    .primary()
+                                    .disabled(self.enroll_in_flight || self.outbox.is_none())
+                                    .on_click(cx.listener(|this, _, _, cx| this.enroll_now(cx))),
+                            ),
+                    )
+            })
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .pt_2()
+                    .child(SharedString::from(format!(
+                        "About: Kaseer {} · {} · update channel cloud (checked at boot and every 6h; never mid-shift)",
+                        env!("CARGO_PKG_VERSION"),
+                        crate::kiosk::arch(),
+                    ))),
             )
     }
 

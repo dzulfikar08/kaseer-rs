@@ -26,8 +26,25 @@ pub fn open_db(path: &str) -> rusqlite::Result<Connection> {
         }
     }
     let conn = Connection::open(path)?;
-    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
-    migrate(&conn)?;
+    // The ledger serves the register, the drain's polling read, the menu
+    // apply, and the update loop's shift check concurrently: brief locks
+    // must wait, not error.
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    crate::sync::ensure_wal(&conn)?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    // Migrate is user_version-staged, hence idempotent; a BUSY from a
+    // concurrent opener is resolved by a short retry, not a failed open.
+    let mut attempt = 0;
+    loop {
+        match migrate(&conn) {
+            Ok(()) => break,
+            Err(error) if attempt < 25 && crate::sync::is_busy_error(&error) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(error) => return Err(error),
+        }
+    }
     Ok(conn)
 }
 

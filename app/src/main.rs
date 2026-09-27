@@ -1,6 +1,7 @@
 //! Kaseer application shell: GPUI Kit bootstrap, theme install, and the
 //! first window.
 
+mod kiosk;
 mod menu_sync;
 mod screens;
 mod shell;
@@ -76,13 +77,14 @@ fn main() {
             };
 
             cx.spawn(async move |cx| {
-                cx.open_window(options, |window, cx| {
-                    let view = cx.new(|cx| shell::AppShell::new(window, cx));
-                    // First level on the window is Root: overlays, menus,
-                    // notifications, focus traps.
-                    cx.new(|cx| Root::new(view, window, cx))
-                })
-                .expect("failed to open the Kaseer window");
+                let window = cx
+                    .open_window(options, |window, cx| {
+                        let view = cx.new(|cx| shell::AppShell::new(window, cx));
+                        // First level on the window is Root: overlays, menus,
+                        // notifications, focus traps.
+                        cx.new(|cx| Root::new(view, window, cx))
+                    })
+                    .expect("failed to open the Kaseer window");
 
                 // Cloud sync: drain whatever the last session left queued
                 // (respects the failure backoff window; see sync_client).
@@ -91,9 +93,15 @@ fn main() {
                 })
                 .detach();
 
-                // Menu pull: the companion owns the catalog — poll its
-                // revision now and every 30s (see menu_sync).
+                // Menu pull: the cloud (enrolled) or the companion owns the
+                // catalog — poll its revision now and on the source's tick
+                // (see menu_sync).
                 menu_sync::spawn_menu_poll(cx.background_executor().clone());
+
+                // Kiosk presence + auto-update: heartbeat at boot and every
+                // 5 minutes, update check at boot and every 6 hours. This
+                // await is the process's lifetime (see kiosk).
+                kiosk::kiosk_loop(cx, window).await;
             })
             .detach();
         });

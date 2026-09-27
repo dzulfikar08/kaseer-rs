@@ -18,6 +18,7 @@
 //! batch (the cloud counts one bad row in `errors` and accepts the rest).
 
 use std::env;
+use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -313,6 +314,57 @@ pub struct Outbox {
     conn: Connection,
 }
 
+/// True for the SQLITE_BUSY family, including the "database is locked"
+/// message busy handlers cannot cover (e.g. journal-mode changes while
+/// another connection holds a read transaction).
+pub fn is_busy_error(error: &rusqlite::Error) -> bool {
+    match error {
+        rusqlite::Error::SqliteFailure(_, Some(message)) => {
+            let message = message.to_lowercase();
+            message.contains("locked") || message.contains("busy")
+        }
+        _ => false,
+    }
+}
+
+/// `PRAGMA journal_mode = WAL` errors immediately (no busy handler) when
+/// any other connection is mid-transaction; the mode is sticky, so only
+/// set it when it is not already WAL.
+pub fn ensure_wal(conn: &Connection) -> rusqlite::Result<()> {
+    let mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+    if mode.eq_ignore_ascii_case("wal") {
+        return Ok(());
+    }
+    let mut attempt = 0;
+    loop {
+        match conn.execute_batch("PRAGMA journal_mode = WAL;") {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt < 25 && is_busy_error(&error) => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// CREATE TABLE/INDEX statements race between the process's concurrent
+/// openers (register UI, drain, menu poll, heartbeat, update check); a
+/// short retry turns that collision into a wait instead of a failed open.
+fn bootstrap_with_retry(conn: &Connection, statements: &str) -> rusqlite::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match conn.execute_batch(statements) {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt < 25 && is_busy_error(&error) => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 impl Outbox {
     pub fn open(path: &str) -> rusqlite::Result<Outbox> {
         if path != ":memory:" {
@@ -321,8 +373,13 @@ impl Outbox {
             }
         }
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode = WAL;")?;
-        conn.execute_batch(OUTBOX_SCHEMA)?;
+        // The outbox has several independent writers (drain, menu poll,
+        // heartbeat, enrollment): a 5s busy window turns their rare
+        // overlaps into short waits instead of spurious "database is
+        // locked" errors.
+        conn.busy_timeout(Duration::from_secs(5))?;
+        ensure_wal(&conn)?;
+        bootstrap_with_retry(&conn, OUTBOX_SCHEMA)?;
         Ok(Outbox { conn })
     }
 
@@ -544,10 +601,16 @@ pub fn drain(
     http: &dyn BatchHttp,
     forced: bool,
 ) -> Result<DrainOutcome, String> {
-    let token = outbox
-        .meta_get("store_token")
-        .filter(|t| !t.trim().is_empty())
-        .ok_or("No store token configured")?;
+    // Credentials: an enrolled kiosk presents its device token to the same
+    // /api/sync/batch endpoint; the pre-enrollment store token keeps
+    // working for terminals that sync without enrolling.
+    let token = match outbox.meta_get("device_token").filter(|t| !t.trim().is_empty()) {
+        Some(device_token) => device_token,
+        None => outbox
+            .meta_get("store_token")
+            .filter(|t| !t.trim().is_empty())
+            .ok_or("No store token configured")?,
+    };
     let base_url = outbox
         .meta_get("cloud_url")
         .filter(|u| !u.trim().is_empty())
@@ -667,10 +730,11 @@ mod tests {
     use crate::payments::TenderMethod;
     use crate::receipt::{Sale, SaleLine};
 
-    /// Records request bodies and replays scripted responses.
+    /// Records request bodies, tokens, and replays scripted responses.
     struct FakeHttp {
         responses: std::cell::RefCell<std::collections::VecDeque<Result<String, String>>>,
         bodies: std::cell::RefCell<Vec<String>>,
+        tokens: std::cell::RefCell<Vec<String>>,
     }
 
     impl FakeHttp {
@@ -687,6 +751,7 @@ mod tests {
                     ),
                 )])),
                 bodies: std::cell::RefCell::new(Vec::new()),
+                tokens: std::cell::RefCell::new(Vec::new()),
             }
         }
 
@@ -696,13 +761,15 @@ mod tests {
                     message.to_string(),
                 )])),
                 bodies: std::cell::RefCell::new(Vec::new()),
+                tokens: std::cell::RefCell::new(Vec::new()),
             }
         }
     }
 
     impl BatchHttp for FakeHttp {
-        fn post_batch(&self, _base: &str, _token: &str, body: &str) -> Result<String, String> {
+        fn post_batch(&self, _base: &str, token: &str, body: &str) -> Result<String, String> {
             self.bodies.borrow_mut().push(body.to_string());
+            self.tokens.borrow_mut().push(token.to_string());
             self.responses
                 .borrow_mut()
                 .pop_front()
@@ -850,6 +917,51 @@ mod tests {
         let outcome = drain(&ledger, &outbox, &http2, false).unwrap();
         assert_eq!(outcome.queued_sales, 0);
         assert_eq!(outcome.accepted, 0);
+    }
+
+    #[test]
+    fn enrolled_kiosk_drains_with_the_device_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = repo(dir.path().join("ledger.db").to_str().unwrap());
+        ledger.insert_sale(&sample_sale("s1", 1_000), &Default::default(), 0).unwrap();
+        let product = crate::repos::Product {
+            id: "p1".into(),
+            sku: "KOPI".into(),
+            name: "Kopi".into(),
+            category: "Drinks".into(),
+            price_minor: 5_000,
+            cost_minor: 2_000,
+            tax_rate_id: None,
+            track_stock: true,
+            low_stock_at: 3,
+            archived: false,
+            description: String::new(),
+            prep_notes: String::new(),
+            allergens: String::new(),
+            route_kitchen: false,
+            image_path: String::new(),
+        };
+        ledger.upsert_product(&product).unwrap();
+        let outbox = Outbox::open(dir.path().join("outbox.db").to_str().unwrap()).unwrap();
+        outbox.meta_set("cloud_url", "https://cloud.test").unwrap();
+
+        // Without enrollment the store token keeps working.
+        outbox.meta_set("store_token", "store-tok").unwrap();
+        let catalog_rows = ledger.customers(None).unwrap().len() as u64 + 1;
+        let http = FakeHttp::ok(catalog_rows, 0, vec![]);
+        drain(&ledger, &outbox, &http, false).unwrap();
+        assert!(http.tokens.borrow().iter().all(|t| t == "store-tok"));
+
+        // Enrollment swaps the credential on the same endpoint: the next
+        // drain (forced here, so the backoff window never interferes)
+        // presents the device token for the re-activated catalog edit.
+        outbox.meta_set("device_token", "device-tok").unwrap();
+        let mut edited = product.clone();
+        edited.price_minor = 6_000;
+        ledger.upsert_product(&edited).unwrap();
+        let http2 = FakeHttp::ok(1, 0, vec![]);
+        drain(&ledger, &outbox, &http2, true).unwrap();
+        assert!(http2.tokens.borrow().iter().all(|t| t == "device-tok"));
     }
 
     #[test]
