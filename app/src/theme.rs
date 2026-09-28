@@ -6,37 +6,36 @@
 //! read semantic roles from `cx.theme()`, never literals (Design Guides,
 //! "Color and themes").
 //!
-//! theme.css mapping:
-//! - cool charcoal neutrals `#0f1115` `#161920` `#1d212b`, border `#2a2f3c`
-//! - text `#e7eaf0`, muted `#8b93a5`
-//! - single till-amber accent `#fbbf24` (dim `#d4a017`), dark-on-amber
-//!   foreground `#1a1206`
-//! - states: danger `#f87171`, ok `#34d399`
+//! theme.css mapping (brand rollout 2026-09-28):
+//! - midnight neutrals `#0a0a0f` `#14161f` `#1c1f2b`, border `#2a2f3c`
+//! - text `#f9fafc`, muted `#98a2b3`
+//! - single indigo accent `#6366f1` (dim `#4f46e5`), white foreground
+//! - states: danger `#f87171`, ok emerald `#10b981`
 //! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
-//! - 'IBM Plex Sans' (embedded via `assets/fonts`), 14px base, tabular
+//! - 'Inter' (embedded via `assets/fonts`), 14px base, tabular
 //!   numerals on money
 
 use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{App, Hsla, Pixels, px};
 
-const BG: &str = "#0f1115";
-const SURFACE: &str = "#161920";
-const SURFACE_2: &str = "#1d212b";
+const BG: &str = "#0a0a0f";
+const SURFACE: &str = "#14161f";
+const SURFACE_2: &str = "#1c1f2b";
 const BORDER: &str = "#2a2f3c";
-const TEXT: &str = "#e7eaf0";
-const MUTED: &str = "#8b93a5";
-const ACCENT: &str = "#fbbf24";
-const ACCENT_DIM: &str = "#d4a017";
+const TEXT: &str = "#f9fafc";
+const MUTED: &str = "#98a2b3";
+const ACCENT: &str = "#6366f1";
+const ACCENT_DIM: &str = "#4f46e5";
 const DANGER: &str = "#f87171";
-const OK: &str = "#34d399";
-/// The web `.btn.primary`/`.chip.active` foreground: near-black warm brown
-/// that keeps the amber readable.
-const ON_ACCENT: &str = "#1a1206";
+const OK: &str = "#10b981";
+/// The web `.btn.primary`/`.chip.active` foreground: white keeps the
+/// indigo readable.
+const ON_ACCENT: &str = "#ffffff";
 
 /// The app's embedded sans family. Matches the family name baked into the
 /// TTFs under `assets/fonts`, which `install` registers with the text
 /// system; a family set explicitly on the theme is used as-is.
-pub const FONT_SANS: &str = "IBM Plex Sans";
+pub const FONT_SANS: &str = "Inter";
 
 /// The web `.receipt`: white paper, near-black ink. Functions because
 /// `Hsla::parse_hex` is not `const`.
@@ -54,7 +53,7 @@ pub fn receipt_ink() -> Hsla {
 pub const CARD_RADIUS: Pixels = px(12.);
 
 /// Web money cells set `font-variant-numeric: tabular-nums`; the embedded
-/// IBM Plex Sans honors `tnum`, so digits line up without falling back to
+/// Inter honors `tnum`, so digits line up without falling back to
 /// a monospace face.
 pub fn tabular() -> gpui_kit::FontFeatures {
     gpui_kit::FontFeatures(std::sync::Arc::new(vec![("tnum".to_string(), 1)]))
@@ -74,12 +73,12 @@ pub fn accent_dim() -> Hsla {
 /// palette. Call once after `gpui_kit::init`, before opening windows.
 pub fn install(cx: &mut App) {
     let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Regular.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-SemiBold.ttf")),
     ];
     cx.text_system()
         .add_fonts(fonts)
-        .expect("embedded IBM Plex Sans loads");
+        .expect("embedded Inter loads");
 
     Theme::change(ThemeMode::Dark, None, cx);
 
@@ -162,7 +161,7 @@ pub fn install(cx: &mut App) {
         theme.radius = px(9.);
         theme.radius_lg = px(14.);
 
-        // The web ships 'IBM Plex Sans' with a system-ui fallback; the
+        // The web ships 'Inter' with a system-ui fallback; the
         // embedded family covers it, so name it directly.
         theme.font_family = FONT_SANS.into();
 

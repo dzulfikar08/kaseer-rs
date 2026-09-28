@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use super::customers::SelectedCustomer;
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -33,7 +34,6 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
-use super::customers::SelectedCustomer;
 use kaseer_core::cart::{self, Cart, CartTotals, Discount};
 use kaseer_core::currency::{Currency, IDR, currency_by_code};
 use kaseer_core::db::{open_repo, resolve_db_path};
@@ -1082,7 +1082,11 @@ pub(crate) struct PayDialog {
 }
 
 impl PayDialog {
-    pub(crate) fn new(currency: &'static Currency, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        currency: &'static Currency,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let entry = cx.new(|cx| {
             InputState::new(window, cx).placeholder(format!("Amount ({})", currency.code))
         });

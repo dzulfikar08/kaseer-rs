@@ -6,8 +6,8 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::assets::IconName;
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants as _, Toggle};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
@@ -28,7 +28,13 @@ fn repo_guard(repo: &Mutex<Repo>) -> MutexGuard<'_, Repo> {
 }
 
 /// True when the current editor inputs differ from the loaded product.
-fn editor_matches(product: &Product, description: &str, prep: &str, allergens: &str, routed: bool) -> bool {
+fn editor_matches(
+    product: &Product,
+    description: &str,
+    prep: &str,
+    allergens: &str,
+    routed: bool,
+) -> bool {
     product.description == description
         && product.prep_notes == prep
         && product.allergens == allergens
@@ -56,7 +62,8 @@ impl KnowledgeScreen {
             repo.products(false, None).unwrap_or_default()
         };
 
-        let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search products by name or SKU"));
+        let query =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search products by name or SKU"));
         let description = cx.new(|cx| InputState::new(window, cx).placeholder("What is it?"));
         let prep = cx.new(|cx| {
             InputState::new(window, cx).placeholder("How is it prepared? (station, timing, …)")
@@ -118,12 +125,15 @@ impl KnowledgeScreen {
         };
         self.selected_id = Some(product.id.clone());
         self.route_kitchen = product.route_kitchen;
-        self.description
-            .update(cx, |input, cx| input.set_value(product.description.clone(), window, cx));
-        self.prep
-            .update(cx, |input, cx| input.set_value(product.prep_notes.clone(), window, cx));
-        self.allergens
-            .update(cx, |input, cx| input.set_value(product.allergens.clone(), window, cx));
+        self.description.update(cx, |input, cx| {
+            input.set_value(product.description.clone(), window, cx)
+        });
+        self.prep.update(cx, |input, cx| {
+            input.set_value(product.prep_notes.clone(), window, cx)
+        });
+        self.allergens.update(cx, |input, cx| {
+            input.set_value(product.allergens.clone(), window, cx)
+        });
         cx.notify();
     }
 
@@ -177,7 +187,11 @@ impl KnowledgeScreen {
     fn render_list(&self, cx: &Context<Self>) -> impl IntoElement {
         let products = self.filtered(cx);
         let selected_id = self.selected_id.clone();
-        let mut list = v_flex().flex_grow(1.).min_h_0().gap_1().overflow_y_scrollbar();
+        let mut list = v_flex()
+            .flex_grow(1.)
+            .min_h_0()
+            .gap_1()
+            .overflow_y_scrollbar();
         for product in &products {
             let id = product.id.clone();
             let selected = selected_id.as_deref() == Some(product.id.as_str());
@@ -312,17 +326,15 @@ impl KnowledgeScreen {
                             })),
                     )
                     .child(
-                        h_flex()
-                            .justify_end()
-                            .child(
-                                Button::new("kb-save")
-                                    .primary()
-                                    .label("Save")
-                                    .disabled(!dirty)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.save(window, cx);
-                                    })),
-                            ),
+                        h_flex().justify_end().child(
+                            Button::new("kb-save")
+                                .primary()
+                                .label("Save")
+                                .disabled(!dirty)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.save(window, cx);
+                                })),
+                        ),
                     )
                     .into_any_element()
             }

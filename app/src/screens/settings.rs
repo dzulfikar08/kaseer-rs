@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, button::Button,
@@ -97,20 +97,52 @@ impl SettingsScreen {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (repo, settings, tax_rates, load_error) = match open_repo(&resolve_db_path()) {
             Ok(repo) => match (repo.settings(), repo.tax_rates()) {
-                (Ok(settings), Ok(tax_rates)) => (Some(Mutex::new(repo)), Some(settings), tax_rates, None),
+                (Ok(settings), Ok(tax_rates)) => {
+                    (Some(Mutex::new(repo)), Some(settings), tax_rates, None)
+                }
                 (Err(e), _) | (_, Err(e)) => (None, None, Vec::new(), Some(e.to_string())),
             },
             Err(e) => (None, None, Vec::new(), Some(e.to_string())),
         };
         let store = settings.as_ref();
 
-        let store_name = text_input(window, cx, store.map_or("", |s| &s.store_name), "Toko Kaseer");
+        let store_name = text_input(
+            window,
+            cx,
+            store.map_or("", |s| &s.store_name),
+            "Toko Kaseer",
+        );
         let address = text_input(window, cx, store.map_or("", |s| &s.address), "");
-        let receipt_footer = text_input(window, cx, store.map_or("", |s| &s.receipt_footer), "e.g. Terima kasih!");
-        let step_minor = text_input(window, cx, &number_or_empty(store.map(|s| s.loyalty.step_minor)), "");
-        let points_per_step = text_input(window, cx, &number_or_empty(store.map(|s| s.loyalty.points_per_step)), "");
-        let point_value_minor = text_input(window, cx, &number_or_empty(store.map(|s| s.loyalty.point_value_minor)), "");
-        let lost_after_days = text_input(window, cx, &number_or_empty(store.map(|s| s.config.lost_after_days)), "");
+        let receipt_footer = text_input(
+            window,
+            cx,
+            store.map_or("", |s| &s.receipt_footer),
+            "e.g. Terima kasih!",
+        );
+        let step_minor = text_input(
+            window,
+            cx,
+            &number_or_empty(store.map(|s| s.loyalty.step_minor)),
+            "",
+        );
+        let points_per_step = text_input(
+            window,
+            cx,
+            &number_or_empty(store.map(|s| s.loyalty.points_per_step)),
+            "",
+        );
+        let point_value_minor = text_input(
+            window,
+            cx,
+            &number_or_empty(store.map(|s| s.loyalty.point_value_minor)),
+            "",
+        );
+        let lost_after_days = text_input(
+            window,
+            cx,
+            &number_or_empty(store.map(|s| s.config.lost_after_days)),
+            "",
+        );
 
         let currency_code = store
             .map(|s| s.currency_code.clone())
@@ -126,12 +158,16 @@ impl SettingsScreen {
             .iter()
             .position(|c| c.code == currency_code)
             .map(IndexPath::new);
-        let currency = cx.new(|cx| SelectState::new(SearchableVec::new(items), selected, window, cx));
+        let currency =
+            cx.new(|cx| SelectState::new(SearchableVec::new(items), selected, window, cx));
 
         let mut tax_fields = Vec::new();
         for rate in &tax_rates {
             let pct = text_input(window, cx, &bps_to_percent(rate.bps), "");
-            tax_fields.push(TaxField { rate: rate.clone(), pct });
+            tax_fields.push(TaxField {
+                rate: rate.clone(),
+                pct,
+            });
         }
 
         let outbox = Outbox::open(&sync::resolve_outbox_path()).ok();
@@ -151,7 +187,12 @@ impl SettingsScreen {
             .and_then(|o| o.meta_get("companion_url"))
             .filter(|url| !url.trim().is_empty())
             .unwrap_or_else(crate::menu_sync::default_companion_url);
-        let menu_url = text_input(window, cx, &menu_url_value, crate::menu_sync::DEFAULT_COMPANION_URL);
+        let menu_url = text_input(
+            window,
+            cx,
+            &menu_url_value,
+            crate::menu_sync::DEFAULT_COMPANION_URL,
+        );
         let pairing_code = text_input(window, cx, "", "6-digit code");
 
         let mut this = Self {
@@ -177,7 +218,12 @@ impl SettingsScreen {
             menu_url,
             menu_in_flight: false,
             menu_message: None,
-            enroll_url: text_input(window, cx, &crate::kiosk::default_enroll_url(), "https://kaseer-cloud…"),
+            enroll_url: text_input(
+                window,
+                cx,
+                &crate::kiosk::default_enroll_url(),
+                "https://kaseer-cloud…",
+            ),
             pairing_code,
             enroll_in_flight: false,
             enroll_message: None,
@@ -266,7 +312,11 @@ impl SettingsScreen {
 
     /// Blur-commit for one percent cell, matched by the input's entity id.
     fn save_tax_rate(&mut self, input_id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(ix) = self.tax_fields.iter().position(|f| f.pct.entity_id() == input_id) else {
+        let Some(ix) = self
+            .tax_fields
+            .iter()
+            .position(|f| f.pct.entity_id() == input_id)
+        else {
             return;
         };
         let value = self.tax_fields[ix].pct.read(cx).value().to_string();
@@ -280,7 +330,11 @@ impl SettingsScreen {
         match self.with_repo(|repo| repo.upsert_tax_rate(&rate)) {
             Some(Ok(())) => {
                 self.tax_fields[ix].rate.bps = bps;
-                Self::toast_ok(window, format!("{name} updated to {}%", bps_to_percent(bps)), cx);
+                Self::toast_ok(
+                    window,
+                    format!("{name} updated to {}%", bps_to_percent(bps)),
+                    cx,
+                );
             }
             Some(Err(_)) => Self::toast_error(window, format!("Could not update {name}"), cx),
             None => {}
@@ -405,7 +459,10 @@ impl SettingsScreen {
         let Some(outbox) = &self.outbox else {
             return (None, None);
         };
-        (outbox.meta_get("menu_last_sync_at"), outbox.meta_get("menu_last_error"))
+        (
+            outbox.meta_get("menu_last_sync_at"),
+            outbox.meta_get("menu_last_error"),
+        )
     }
 
     /// Manual menu pull on the background executor: ignores the revision
@@ -450,7 +507,8 @@ impl SettingsScreen {
         let base_url = self.enroll_url.read(cx).value().trim().to_string();
         let pairing_code = self.pairing_code.read(cx).value().trim().to_string();
         if pairing_code.len() != 6 || !pairing_code.chars().all(|c| c.is_ascii_digit()) {
-            self.enroll_message = Some("Pairing code is the 6 digits from the cloud console.".to_string());
+            self.enroll_message =
+                Some("Pairing code is the 6 digits from the cloud console.".to_string());
             cx.notify();
             return;
         }
@@ -494,7 +552,8 @@ impl SettingsScreen {
     fn revoke_now(&mut self, cx: &mut Context<Self>) {
         match crate::kiosk::revoke() {
             Ok(()) => {
-                self.enroll_message = Some("Kiosk revoked — this terminal is no longer enrolled.".to_string());
+                self.enroll_message =
+                    Some("Kiosk revoked — this terminal is no longer enrolled.".to_string());
                 crate::menu_sync::poll_once();
             }
             Err(error) => self.enroll_message = Some(format!("Revoke failed: {error}")),
@@ -534,7 +593,11 @@ fn number_or_empty(value: Option<i64>) -> String {
 /// The web form's `num`: clamp negatives to zero, round, never NaN-trap.
 fn non_neg_int(value: &str) -> i64 {
     let n: f64 = value.trim().parse().unwrap_or(0.0);
-    if n.is_finite() { n.max(0.0).round() as i64 } else { 0 }
+    if n.is_finite() {
+        n.max(0.0).round() as i64
+    } else {
+        0
+    }
 }
 
 /// Basis points to a plain percent string: 1_100 → "11", 1_050 → "10.5".
@@ -545,7 +608,11 @@ fn bps_to_percent(bps: i64) -> String {
 /// The web's `Math.round((Number(raw) || 0) * 100)`.
 fn percent_to_bps(value: &str) -> i64 {
     let n: f64 = value.trim().parse().unwrap_or(0.0);
-    if n.is_finite() { (n * 100.).round() as i64 } else { 0 }
+    if n.is_finite() {
+        (n * 100.).round() as i64
+    } else {
+        0
+    }
 }
 
 /// Money as the store's currency prints it, for the loyalty hint line.
@@ -627,7 +694,11 @@ impl SettingsScreen {
                         .child(SharedString::from(error)),
                 )
             })
-            .child(Field::new().label("Store name").child(Input::new(&self.store_name)))
+            .child(
+                Field::new()
+                    .label("Store name")
+                    .child(Input::new(&self.store_name)),
+            )
             .child(
                 Field::new()
                     .label("Address (printed on receipts)")
@@ -638,7 +709,11 @@ impl SettingsScreen {
                     .label("Receipt footer")
                     .child(Input::new(&self.receipt_footer)),
             )
-            .child(Field::new().label("Currency").child(Select::new(&self.currency)))
+            .child(
+                Field::new()
+                    .label("Currency")
+                    .child(Select::new(&self.currency)),
+            )
     }
 
     fn render_loyalty_panel(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -684,9 +759,13 @@ impl SettingsScreen {
                             .min_w_24()
                             .gap_1()
                             .child(
-                                div().text_xs().text_color(cx.theme().muted_foreground).child(
-                                    SharedString::from(format!("Spend per step ({})", self.currency_code)),
-                                ),
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(SharedString::from(format!(
+                                        "Spend per step ({})",
+                                        self.currency_code
+                                    ))),
                             )
                             .child(Input::new(&self.step_minor).small()),
                     )
@@ -709,9 +788,13 @@ impl SettingsScreen {
                             .min_w_24()
                             .gap_1()
                             .child(
-                                div().text_xs().text_color(cx.theme().muted_foreground).child(
-                                    SharedString::from(format!("Point value ({})", self.currency_code)),
-                                ),
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(SharedString::from(format!(
+                                        "Point value ({})",
+                                        self.currency_code
+                                    ))),
                             )
                             .child(Input::new(&self.point_value_minor).small()),
                     ),
@@ -734,11 +817,18 @@ impl SettingsScreen {
                     .border_color(cx.theme().border)
                     .pt_2()
                     .child(
-                        div().text_xs().text_color(cx.theme().muted_foreground).child(
-                            SharedString::from("Customer considered lost after (days without purchase)"),
-                        ),
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(
+                                "Customer considered lost after (days without purchase)",
+                            )),
                     )
-                    .child(div().w_24().child(Input::new(&self.lost_after_days).small())),
+                    .child(
+                        div()
+                            .w_24()
+                            .child(Input::new(&self.lost_after_days).small()),
+                    ),
             )
     }
 
@@ -772,7 +862,9 @@ impl SettingsScreen {
             .map(|field| {
                 TableRow::new()
                     .child(TableCell::new().child(SharedString::from(field.rate.name.clone())))
-                    .child(TableCell::new().child(div().w_24().child(Input::new(&field.pct).small())))
+                    .child(
+                        TableCell::new().child(div().w_24().child(Input::new(&field.pct).small())),
+                    )
                     .child(
                         TableCell::new()
                             .text_color(cx.theme().muted_foreground)
@@ -917,11 +1009,9 @@ impl SettingsScreen {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
-                                self.sync_message
-                                    .clone()
-                                    .unwrap_or_else(|| {
-                                        "Fields save when they lose focus.".to_string()
-                                    }),
+                                self.sync_message.clone().unwrap_or_else(|| {
+                                    "Fields save when they lose focus.".to_string()
+                                }),
                             )),
                     )
                     .child(
@@ -961,7 +1051,11 @@ impl SettingsScreen {
                             .text_size(px(12.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().muted_foreground)
-                            .child(if enrolled { "MENU (CLOUD)" } else { "MENU (COMPANION)" }),
+                            .child(if enrolled {
+                                "MENU (CLOUD)"
+                            } else {
+                                "MENU (COMPANION)"
+                            }),
                     )
                     .child(
                         div()
@@ -1016,9 +1110,10 @@ impl SettingsScreen {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
-                                self.menu_message
-                                    .clone()
-                                    .unwrap_or_else(|| "Polls every 30s; edits from this terminal push back.".to_string()),
+                                self.menu_message.clone().unwrap_or_else(|| {
+                                    "Polls every 30s; edits from this terminal push back."
+                                        .to_string()
+                                }),
                             )),
                     )
                     .child(
@@ -1242,8 +1337,7 @@ impl SettingsScreen {
     }
 
     fn render_tax_table(&self, cx: &Context<Self>, rows: Vec<TableRow>) -> impl IntoElement {
-        let rates_ok = self
-            .with_repo(|repo| repo.tax_rates().map(|rates| !rates.is_empty()));
+        let rates_ok = self.with_repo(|repo| repo.tax_rates().map(|rates| !rates.is_empty()));
         match rates_ok {
             Some(Ok(true)) => Table::new()
                 .accessibility_label("Tax rates")

@@ -61,8 +61,7 @@ impl ShiftScreen {
         let cur = Self::currency_of(&repo);
         let repo = Arc::new(Mutex::new(repo));
 
-        let float =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Opening float (Rp)"));
+        let float = cx.new(|cx| InputState::new(window, cx).placeholder("Opening float (Rp)"));
         let enter_subscription = cx.subscribe_in(&float, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 this.try_open(window, cx);
@@ -155,7 +154,11 @@ fn load_summary(repo: &Repo) -> kaseer_core::repos::Result<Option<ActiveShiftSum
     let sales: Vec<SettledSale> = repo.shift_sales(&shift.id)?;
     let totals = shift_totals(&sales);
     let expected_cash_minor = cash_expected_minor(&shift, &sales);
-    Ok(Some(ActiveShiftSummary { shift, totals, expected_cash_minor }))
+    Ok(Some(ActiveShiftSummary {
+        shift,
+        totals,
+        expected_cash_minor,
+    }))
 }
 
 /// Strict float entry, like the native reference: empty or malformed text
@@ -168,8 +171,7 @@ fn parse_float(text: &str, cur: &Currency) -> Option<i64> {
 }
 
 fn money_str(minor: i64, cur: &Currency) -> String {
-    money::format(&money::money(minor, cur.code), Some(cur))
-        .unwrap_or_else(|_| minor.to_string())
+    money::format(&money::money(minor, cur.code), Some(cur)).unwrap_or_else(|_| minor.to_string())
 }
 
 fn notify_error(window: &mut Window, cx: &mut App, message: String) {
@@ -195,13 +197,11 @@ impl Render for ShiftScreen {
             .overflow_y_scrollbar()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(
-                if self.active.is_none() {
-                    self.render_open_panel(cx).into_any_element()
-                } else {
-                    self.render_active(cx).into_any_element()
-                },
-            )
+            .child(if self.active.is_none() {
+                self.render_open_panel(cx).into_any_element()
+            } else {
+                self.render_active(cx).into_any_element()
+            })
     }
 }
 
@@ -233,11 +233,12 @@ impl ShiftScreen {
                             .child(SharedString::from("Open shift")),
                     )
                     .child(
-                        div().text_sm().text_color(cx.theme().muted_foreground).child(
-                            SharedString::from(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(
                                 "Count an opening float into the drawer to start selling.",
-                            ),
-                        ),
+                            )),
                     )
                     .child(Input::new(&self.float).id("shift-float").w_full())
                     .child(h_flex().gap_2().children(QUICK_FLOAT.iter().map(|q| {
@@ -391,12 +392,21 @@ impl ShiftScreen {
         let t = &summary.totals;
         let cur = self.cur;
         let row = |label: &str, value: String, strong: bool| {
-            ledger_row(cx, SharedString::from(label.to_string()), SharedString::from(value), strong)
+            ledger_row(
+                cx,
+                SharedString::from(label.to_string()),
+                SharedString::from(value),
+                strong,
+            )
         };
         panel(cx, "Sales summary")
             .gap_2()
             .child(row("Gross", money_str(t.gross_minor, cur), false))
-            .child(row("Discount", format!("\u{2212}{}", money_str(t.discount_minor, cur)), false))
+            .child(row(
+                "Discount",
+                format!("\u{2212}{}", money_str(t.discount_minor, cur)),
+                false,
+            ))
             .child(row("Tax", money_str(t.tax_minor, cur), false))
             .child(row("Net revenue", money_str(t.total_minor, cur), true))
     }
@@ -467,12 +477,10 @@ impl ShiftScreen {
                             DialogClose::new()
                                 .trigger(|button| button.label("Cancel").outline().small()),
                         )
-                        .child(DialogAction::new().child(
-                            Button::new("ok")
-                                .label("Confirm close")
-                                .primary()
-                                .small(),
-                        )),
+                        .child(
+                            DialogAction::new()
+                                .child(Button::new("ok").label("Confirm close").primary().small()),
+                        ),
                 )
                 .on_ok(move |_, window, cx| {
                     let counted = ok_view.read(cx).counted_minor(cx);
@@ -522,7 +530,12 @@ impl CloseShiftDialog {
             counts.push((minor, input));
         }
 
-        Self { expected_minor, cur, counts, _subscriptions: subscriptions }
+        Self {
+            expected_minor,
+            cur,
+            counts,
+            _subscriptions: subscriptions,
+        }
     }
 
     /// Piece count for one denomination; junk clamps to zero like the web
@@ -560,7 +573,12 @@ impl CloseShiftDialog {
                     .font_features(crate::theme::tabular())
                     .child(SharedString::from(money_str(minor, self.cur))),
             )
-            .child(Input::new(input).id(SharedString::from(format!("shift-count-{minor}"))).small().w_full())
+            .child(
+                Input::new(input)
+                    .id(SharedString::from(format!("shift-count-{minor}")))
+                    .small()
+                    .w_full(),
+            )
             .child(
                 div()
                     .w_24()
@@ -577,7 +595,11 @@ impl Render for CloseShiftDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let counted = self.counted_minor(cx);
         let variance = count_variance_minor(self.expected_minor, counted);
-        let variance_color = if variance == 0 { cx.theme().success } else { cx.theme().danger };
+        let variance_color = if variance == 0 {
+            cx.theme().success
+        } else {
+            cx.theme().danger
+        };
         let variance_text = if variance == 0 {
             format!("{} \u{2014} ok", money_str(variance, self.cur))
         } else {
@@ -592,12 +614,13 @@ impl Render for CloseShiftDialog {
         v_flex()
             .gap_3()
             .child(
-                div().text_sm().text_color(cx.theme().muted_foreground).child(
-                    SharedString::from(format!(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(format!(
                         "Expected cash in drawer: {}",
                         money_str(self.expected_minor, self.cur)
-                    )),
-                ),
+                    ))),
             )
             .children(
                 self.counts
@@ -654,14 +677,23 @@ fn panel(cx: &App, title: &str) -> Div {
         )
 }
 
-fn ledger_row(cx: &App, label: SharedString, value: SharedString, strong: bool) -> impl IntoElement {
+fn ledger_row(
+    cx: &App,
+    label: SharedString,
+    value: SharedString,
+    strong: bool,
+) -> impl IntoElement {
     h_flex()
         .justify_between()
         .child(
             div()
                 .text_sm()
                 .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
-                .text_color(if strong { cx.theme().foreground } else { cx.theme().muted_foreground })
+                .text_color(if strong {
+                    cx.theme().foreground
+                } else {
+                    cx.theme().muted_foreground
+                })
                 .child(label),
         )
         .child(

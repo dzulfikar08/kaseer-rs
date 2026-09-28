@@ -4,10 +4,10 @@
 use std::sync::Mutex;
 
 use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
+use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::{
     ActiveTheme as _, IconName, Sizable as _, button::Button, button::ButtonVariants as _,
     form::Field, input::Input, input::InputEvent, input::InputState,
@@ -18,8 +18,8 @@ use gpui_kit::{
     Render, SharedString, Styled as _, Subscription, Window, div, px,
 };
 use kaseer_core::db::{open_repo, resolve_db_path};
-use kaseer_core::repos::{Customer, Repo};
 use kaseer_core::reports::ms_to_iso;
+use kaseer_core::repos::{Customer, Repo};
 
 /// App-wide pointer to the customer the register will sell to.
 ///
@@ -134,7 +134,11 @@ impl CustomersScreen {
     fn filtered(&self) -> Vec<&Customer> {
         self.customers
             .iter()
-            .filter(|c| self.filter.is_empty() || c.name.to_lowercase().contains(&self.filter) || c.phone.to_lowercase().contains(&self.filter))
+            .filter(|c| {
+                self.filter.is_empty()
+                    || c.name.to_lowercase().contains(&self.filter)
+                    || c.phone.to_lowercase().contains(&self.filter)
+            })
             .collect()
     }
 
@@ -145,7 +149,15 @@ impl CustomersScreen {
         });
         match result {
             Some(Ok(())) => {
-                Self::toast_ok(window, if delta > 0 { "Points added" } else { "Points removed" }, cx);
+                Self::toast_ok(
+                    window,
+                    if delta > 0 {
+                        "Points added"
+                    } else {
+                        "Points removed"
+                    },
+                    cx,
+                );
                 self.reload(window, cx);
             }
             Some(Err(e)) => Self::toast_error(window, format!("Failed to adjust points: {e}"), cx),
@@ -284,15 +296,9 @@ impl CustomersScreen {
                     .justify_between()
                     .flex_wrap()
                     .gap_2()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(SharedString::from(format!(
-                                "Customers — {}",
-                                filtered.len()
-                            ))),
-                    )
+                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
+                        SharedString::from(format!("Customers — {}", filtered.len())),
+                    ))
                     .child(
                         h_flex()
                             .gap_2()
@@ -301,9 +307,9 @@ impl CustomersScreen {
                                 Button::new("refresh-customers")
                                     .label("Refresh")
                                     .icon(IconName::RotateCw)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.reload(window, cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.reload(window, cx)),
+                                    ),
                             )
                             .child(
                                 Button::new("open-add-customer")
@@ -356,9 +362,9 @@ impl CustomersScreen {
                 let sell_customer = customer.clone();
                 let row = TableRow::new()
                     .child(
-                        TableCell::new().font_medium().child(SharedString::from(
-                            customer.name.clone(),
-                        )),
+                        TableCell::new()
+                            .font_medium()
+                            .child(SharedString::from(customer.name.clone())),
                     )
                     .child(
                         TableCell::new()
@@ -369,14 +375,11 @@ impl CustomersScreen {
                         TableCell::new().child(
                             h_flex()
                                 .gap_1()
-                                .child(
-                                    Button::new(dec_id)
-                                        .xsmall()
-                                        .icon(IconName::Minus)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.adjust_points(&dec_target, -POINTS_STEP, window, cx)
-                                        })),
-                                )
+                                .child(Button::new(dec_id).xsmall().icon(IconName::Minus).on_click(
+                                    cx.listener(move |this, _, window, cx| {
+                                        this.adjust_points(&dec_target, -POINTS_STEP, window, cx)
+                                    }),
+                                ))
                                 .child(
                                     div()
                                         .min_w_12()
@@ -385,14 +388,11 @@ impl CustomersScreen {
                                         .font_features(crate::theme::tabular())
                                         .child(SharedString::from(customer.points.to_string())),
                                 )
-                                .child(
-                                    Button::new(inc_id)
-                                        .xsmall()
-                                        .icon(IconName::Plus)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.adjust_points(&inc_target, POINTS_STEP, window, cx)
-                                        })),
-                                ),
+                                .child(Button::new(inc_id).xsmall().icon(IconName::Plus).on_click(
+                                    cx.listener(move |this, _, window, cx| {
+                                        this.adjust_points(&inc_target, POINTS_STEP, window, cx)
+                                    }),
+                                )),
                         ),
                     )
                     .child(

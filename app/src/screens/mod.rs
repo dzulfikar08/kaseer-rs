@@ -50,7 +50,11 @@ pub(crate) fn chip(
         .items_center()
         .rounded(px(999.))
         .text_size(px(12.5))
-        .bg(if active { theme.accent } else { gpui_kit::transparent_black() })
+        .bg(if active {
+            theme.accent
+        } else {
+            gpui_kit::transparent_black()
+        })
         .when(!active, |chip| {
             chip.border_1()
                 .border_color(theme.border)

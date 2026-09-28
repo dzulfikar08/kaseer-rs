@@ -23,8 +23,8 @@
 //! meta table (`companion_url`, `cloud_url`, `device_token`).
 
 use std::io::Read;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use gpui_kit::{App, AppContext as _, BackgroundExecutor};
@@ -188,7 +188,9 @@ fn run_poll(
     outbox_path: &str,
     forced: bool,
 ) -> Result<String, String> {
-    let _guard = PULL_LOCK.try_lock().map_err(|_| "A menu pull is already running".to_string())?;
+    let _guard = PULL_LOCK
+        .try_lock()
+        .map_err(|_| "A menu pull is already running".to_string())?;
     let outbox = Outbox::open(outbox_path).map_err(|e| format!("Outbox unavailable: {e}"))?;
     let (base, token) = match menu_source(&outbox) {
         MenuSource::Cloud { base, token } => (base, Some(token)),
@@ -199,8 +201,14 @@ fn run_poll(
         let revision_bytes = http.get(&format!("{base}/api/menu/revision"), token.as_deref())?;
         let wire: serde_json::Value = serde_json::from_slice(&revision_bytes)
             .map_err(|e| format!("invalid revision payload: {e}"))?;
-        let rev = wire.get("rev").and_then(serde_json::Value::as_u64).unwrap_or(0);
-        let last: u64 = outbox.meta_get(KEY_REV).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let rev = wire
+            .get("rev")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let last: u64 = outbox
+            .meta_get(KEY_REV)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         if !forced && rev == last {
             return Ok(format!("Menu already current (rev {rev})"));
         }
@@ -209,7 +217,13 @@ fn run_poll(
         let payload = menu::parse_menu(&menu_bytes)?;
         let ledger = open_repo(ledger_path).map_err(|e| format!("Ledger unavailable: {e}"))?;
         let apply: MenuApply = menu::apply_menu(&ledger, &payload).map_err(|e| e.to_string())?;
-        let fetched = fetch_images(http, &base, token.as_deref(), ledger.db_path(), &apply.image_files);
+        let fetched = fetch_images(
+            http,
+            &base,
+            token.as_deref(),
+            ledger.db_path(),
+            &apply.image_files,
+        );
 
         // The applied revision goes out even when some photos failed:
         // prices/knowledge are live, and the next pull retries the files
@@ -224,7 +238,10 @@ fn run_poll(
         outbox.meta_delete(KEY_ERROR).map_err(|e| e.to_string())?;
         Ok(match fetched {
             0 => format!("Menu rev {} — {} products", apply.rev, apply.products),
-            n => format!("Menu rev {} — {} products, {n} photos", apply.rev, apply.products),
+            n => format!(
+                "Menu rev {} — {} products, {n} photos",
+                apply.rev, apply.products
+            ),
         })
     })();
 
@@ -266,7 +283,10 @@ fn fetch_images(
                 // Write-then-rename: a half-written photo must never be
                 // the one the register renders.
                 let tmp = target.with_extension("part");
-                let parent = target.parent().map(|dir| dir.to_path_buf()).unwrap_or_default();
+                let parent = target
+                    .parent()
+                    .map(|dir| dir.to_path_buf())
+                    .unwrap_or_default();
                 if std::fs::create_dir_all(parent).is_ok()
                     && std::fs::write(&tmp, &bytes).is_ok()
                     && std::fs::rename(&tmp, &target).is_ok()
@@ -291,13 +311,23 @@ fn now_iso() -> String {
 
 /// Live poll cycle: real paths, real transport, revision-gated.
 pub fn poll_once() {
-    let _ = run_poll(&UreqMenuHttp::default(), &resolve_db_path(), &sync::resolve_outbox_path(), false);
+    let _ = run_poll(
+        &UreqMenuHttp::default(),
+        &resolve_db_path(),
+        &sync::resolve_outbox_path(),
+        false,
+    );
 }
 
 /// Manual pull from Settings: ignores the revision gate and returns a
 /// summary for the status line.
 pub fn pull_now() -> String {
-    match run_poll(&UreqMenuHttp::default(), &resolve_db_path(), &sync::resolve_outbox_path(), true) {
+    match run_poll(
+        &UreqMenuHttp::default(),
+        &resolve_db_path(),
+        &sync::resolve_outbox_path(),
+        true,
+    ) {
         Ok(summary) => summary,
         Err(error) => format!("Menu pull failed: {error}"),
     }
@@ -327,9 +357,7 @@ pub fn spawn_knowledge_push(cx: &mut App, product_id: String, patch: KnowledgePa
         let outbox = Outbox::open(&sync::resolve_outbox_path()).ok();
         let (base, token) = match outbox.as_ref().map(menu_source) {
             Some(MenuSource::Cloud { base, token }) => (base, Some(token)),
-            Some(MenuSource::Companion { base }) => {
-                (base.trim_end_matches('/').to_string(), None)
-            }
+            Some(MenuSource::Companion { base }) => (base.trim_end_matches('/').to_string(), None),
             None => (companion_url(None).trim_end_matches('/').to_string(), None),
         };
         // Omitted keys keep their value on the source, so None entries
@@ -411,7 +439,11 @@ mod tests {
     impl MenuHttp for FakeCompanion {
         fn get(&self, url: &str, _token: Option<&str>) -> Result<Vec<u8>, String> {
             if url.ends_with("/api/menu/revision") {
-                return Ok(serde_json::json!({ "v": 1, "rev": self.rev.load(Ordering::Acquire) }).to_string().into_bytes());
+                return Ok(
+                    serde_json::json!({ "v": 1, "rev": self.rev.load(Ordering::Acquire) })
+                        .to_string()
+                        .into_bytes(),
+                );
             }
             if url.ends_with("/api/menu") {
                 self.pulls.fetch_add(1, Ordering::AcqRel);
@@ -424,7 +456,9 @@ mod tests {
         }
 
         fn patch_json(&self, url: &str, _token: Option<&str>, body: &str) -> Result<(), String> {
-            self.patches.lock().push((url.to_string(), body.to_string()));
+            self.patches
+                .lock()
+                .push((url.to_string(), body.to_string()));
             Ok(())
         }
     }
@@ -440,7 +474,11 @@ mod tests {
 
     impl FakeCloud {
         fn new(rev: u64, product_id: &str) -> Self {
-            Self { rev, product_id: product_id.to_string(), requests: parking_lot::Mutex::new(Vec::new()) }
+            Self {
+                rev,
+                product_id: product_id.to_string(),
+                requests: parking_lot::Mutex::new(Vec::new()),
+            }
         }
     }
 
@@ -450,7 +488,9 @@ mod tests {
                 .lock()
                 .push((url.to_string(), token.unwrap_or_default().to_string()));
             if url.ends_with("/api/menu/revision") {
-                return Ok(serde_json::json!({ "v": 1, "rev": self.rev }).to_string().into_bytes());
+                return Ok(serde_json::json!({ "v": 1, "rev": self.rev })
+                    .to_string()
+                    .into_bytes());
             }
             if url.ends_with("/api/menu") {
                 return Ok(serde_json::json!({
@@ -464,7 +504,9 @@ mod tests {
                         "description": "", "prepNotes": "", "allergens": "", "routeKitchen": false,
                         "imagePath": "images/cloud.jpg"
                     }]
-                }).to_string().into_bytes());
+                })
+                .to_string()
+                .into_bytes());
             }
             if url.contains("/images/") {
                 if !url.contains("token=dev-tok") {
@@ -476,9 +518,10 @@ mod tests {
         }
 
         fn patch_json(&self, url: &str, token: Option<&str>, body: &str) -> Result<(), String> {
-            self.requests
-                .lock()
-                .push((url.to_string(), format!("patch:{}:{}", token.unwrap_or_default(), body)));
+            self.requests.lock().push((
+                url.to_string(),
+                format!("patch:{}:{}", token.unwrap_or_default(), body),
+            ));
             Ok(())
         }
     }
@@ -584,8 +627,15 @@ mod tests {
         let error = run_poll(&Dead, &ledger, &outbox_path, false).unwrap_err();
         assert!(error.contains("connection refused"));
         let outbox = Outbox::open(&outbox_path).unwrap();
-        assert_eq!(outbox.meta_get("menu_last_error").as_deref(), Some(error.as_str()));
-        assert_eq!(outbox.meta_get("menu_rev"), None, "a dead pull applies no revision");
+        assert_eq!(
+            outbox.meta_get("menu_last_error").as_deref(),
+            Some(error.as_str())
+        );
+        assert_eq!(
+            outbox.meta_get("menu_rev"),
+            None,
+            "a dead pull applies no revision"
+        );
     }
 
     #[test]
@@ -603,12 +653,19 @@ mod tests {
         assert_eq!(summary, "Menu rev 7 — 1 products, 1 photos");
 
         let requests = cloud.requests.lock().clone();
-        assert!(requests.iter().all(|(url, _)| url.starts_with("https://cloud.test/")));
+        assert!(
+            requests
+                .iter()
+                .all(|(url, _)| url.starts_with("https://cloud.test/"))
+        );
         let menu_token = requests
             .iter()
             .find(|(url, _)| url.ends_with("/api/menu"))
             .expect("menu was pulled");
-        assert_eq!(menu_token.1, "dev-tok", "menu GET carries the device bearer");
+        assert_eq!(
+            menu_token.1, "dev-tok",
+            "menu GET carries the device bearer"
+        );
         let image_url = requests
             .iter()
             .map(|(url, _)| url.as_str())
@@ -649,8 +706,10 @@ mod tests {
             .unwrap();
         let requests = cloud.requests.lock().clone();
         assert!(requests.len() > before);
-        assert!(requests
-            .iter()
-            .any(|(u, t)| u == &url && t == "patch:dev-tok:{\"prepNotes\":\"Extra hot.\"}"));
+        assert!(
+            requests
+                .iter()
+                .any(|(u, t)| u == &url && t == "patch:dev-tok:{\"prepNotes\":\"Extra hot.\"}")
+        );
     }
 }

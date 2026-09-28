@@ -96,7 +96,10 @@ impl InventoryScreen {
     }
 
     fn count_outs(&self) -> usize {
-        self.products.iter().filter(|p| self.on_hand(p) <= 0).count()
+        self.products
+            .iter()
+            .filter(|p| self.on_hand(p) <= 0)
+            .count()
     }
 
     // UI-integration readers, so tests assert through the view instead of
@@ -113,7 +116,10 @@ impl InventoryScreen {
 
     #[allow(dead_code)] // recipe accessors: unused until the UI-test pass
     pub fn stock_value_minor(&self) -> i64 {
-        self.products.iter().map(|p| self.on_hand(p) * p.cost_minor).sum()
+        self.products
+            .iter()
+            .map(|p| self.on_hand(p) * p.cost_minor)
+            .sum()
     }
 
     fn matches_filter(&self, product: &Product, filter: StockFilter) -> bool {
@@ -175,9 +181,8 @@ impl InventoryScreen {
                                 .trigger(|button| button.label("Cancel").outline().small()),
                         )
                         .child(
-                            DialogAction::new().child(
-                                Button::new("ok").label("Apply").primary().small(),
-                            ),
+                            DialogAction::new()
+                                .child(Button::new("ok").label("Apply").primary().small()),
                         ),
                 )
                 .on_ok(move |_, window, cx| {
@@ -204,9 +209,7 @@ impl InventoryScreen {
                     }) {
                         Ok(on_hand) => {
                             window.push_notification(
-                                Notification::success(format!(
-                                    "{ok_name}: {on_hand} on hand"
-                                )),
+                                Notification::success(format!("{ok_name}: {on_hand} on hand")),
                                 cx,
                             );
                             true
@@ -251,8 +254,7 @@ fn currency_of(repo: &Repo) -> &'static Currency {
 }
 
 fn money_str(minor: i64, cur: &Currency) -> String {
-    money::format(&money::money(minor, cur.code), Some(cur))
-        .unwrap_or_else(|_| minor.to_string())
+    money::format(&money::money(minor, cur.code), Some(cur)).unwrap_or_else(|_| minor.to_string())
 }
 
 impl Render for InventoryScreen {
@@ -285,7 +287,9 @@ impl InventoryScreen {
             .p_6()
             .gap_4()
             .child(
-                h_flex().gap_3().flex_wrap()
+                h_flex()
+                    .gap_3()
+                    .flex_wrap()
                     .child(self.stat_cell(cx, "Tracked SKUs", tracked.to_string(), None))
                     .child(self.stat_cell(
                         cx,
@@ -396,18 +400,19 @@ impl InventoryScreen {
     fn render_filter_chips(&self, cx: &Context<Self>) -> impl IntoElement {
         let lows = self.count_lows();
         let outs = self.count_outs();
-        let chip = |cx: &Context<Self>, id: &'static str, label: SharedString, filter: StockFilter| {
-            super::chip(
-                cx,
-                id,
-                label,
-                self.filter == filter,
-                cx.listener(move |this, _, _, cx| {
-                    this.filter = filter;
-                    cx.notify();
-                }),
-            )
-        };
+        let chip =
+            |cx: &Context<Self>, id: &'static str, label: SharedString, filter: StockFilter| {
+                super::chip(
+                    cx,
+                    id,
+                    label,
+                    self.filter == filter,
+                    cx.listener(move |this, _, _, cx| {
+                        this.filter = filter;
+                        cx.notify();
+                    }),
+                )
+            };
         h_flex()
             .gap_2()
             .child(chip(cx, "filter-all", "All".into(), StockFilter::All))
@@ -483,7 +488,12 @@ impl InventoryScreen {
                 v_flex()
                     .flex_1()
                     .min_w_0()
-                    .child(div().text_sm().truncate().child(SharedString::from(product.name.clone())))
+                    .child(
+                        div()
+                            .text_sm()
+                            .truncate()
+                            .child(SharedString::from(product.name.clone())),
+                    )
                     .child(
                         div()
                             .text_xs()
@@ -623,9 +633,24 @@ impl Render for AdjustStockDialog {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(self.reason_chip(cx, "reason-receive", "Receive (+)", StockReason::Receive))
-                            .child(self.reason_chip(cx, "reason-shrinkage", "Shrinkage (\u{2212})", StockReason::Shrinkage))
-                            .child(self.reason_chip(cx, "reason-adjust", "Adjustment (\u{00b1})", StockReason::Adjust)),
+                            .child(self.reason_chip(
+                                cx,
+                                "reason-receive",
+                                "Receive (+)",
+                                StockReason::Receive,
+                            ))
+                            .child(self.reason_chip(
+                                cx,
+                                "reason-shrinkage",
+                                "Shrinkage (\u{2212})",
+                                StockReason::Shrinkage,
+                            ))
+                            .child(self.reason_chip(
+                                cx,
+                                "reason-adjust",
+                                "Adjustment (\u{00b1})",
+                                StockReason::Adjust,
+                            )),
                     ),
             )
             .child(

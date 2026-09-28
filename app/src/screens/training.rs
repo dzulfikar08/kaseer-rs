@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
@@ -17,18 +18,16 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
-use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt as _,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window,
-    div, px,
+    AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div, px,
 };
 use kaseer_core::cart::{self, Cart, CartTotals, Discount};
-use kaseer_core::currency::{Currency, currency_by_code, IDR};
+use kaseer_core::currency::{Currency, IDR, currency_by_code};
 use kaseer_core::db::{open_repo, resolve_db_path, snapshot_db};
 use kaseer_core::loyalty::{max_redeemable_points, points_earned, redeem_value_minor};
 use kaseer_core::payments::{self, Tender, TenderMethod};
@@ -127,13 +126,11 @@ struct Session {
 impl TrainingScreen {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let float = cx.new(|cx| InputState::new(window, cx).placeholder("Opening float (Rp)"));
-        let scan = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Type a SKU and press Enter")
-        });
+        let scan =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Type a SKU and press Enter"));
         let discount = cx.new(|cx| InputState::new(window, cx).placeholder("%"));
-        let customer_select = cx.new(|cx| {
-            SelectState::new(Vec::new(), Some(IndexPath::new(0)), window, cx)
-        });
+        let customer_select =
+            cx.new(|cx| SelectState::new(Vec::new(), Some(IndexPath::new(0)), window, cx));
         let pay_dialog = cx.new(|cx| PayDialog::new(CUR_FALLBACK, window, cx));
         let receipt_dialog = cx.new(|_cx| ReceiptDialog::new(None, CUR_FALLBACK));
 
@@ -153,31 +150,25 @@ impl TrainingScreen {
 
     fn wire_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let scan = self.scan.clone();
-        self._subscriptions.push(cx.subscribe_in(
-            &scan,
-            window,
-            |this, _, event, window, cx| {
+        self._subscriptions.push(
+            cx.subscribe_in(&scan, window, |this, _, event, window, cx| {
                 if matches!(event, InputEvent::PressEnter { .. }) {
                     this.scan_sku(window, cx);
                 }
-            },
-        ));
+            }),
+        );
         let float = self.float.clone();
-        self._subscriptions.push(cx.subscribe_in(
-            &float,
-            window,
-            |this, _, event, window, cx| {
+        self._subscriptions.push(
+            cx.subscribe_in(&float, window, |this, _, event, window, cx| {
                 if matches!(event, InputEvent::PressEnter { .. }) {
                     this.open_shift_from_input(window, cx);
                 }
-            },
-        ));
+            }),
+        );
         let select = self.customer_select.clone();
-        self._subscriptions.push(cx.subscribe_in(
-            &select,
-            window,
-            |this, _, event, _, cx| {
-                match event {
+        self._subscriptions
+            .push(
+                cx.subscribe_in(&select, window, |this, _, event, _, cx| match event {
                     SelectEvent::Confirm(value) => {
                         let id = value.clone().filter(|id| !id.is_empty());
                         if let Some(session) = &mut this.session {
@@ -185,28 +176,23 @@ impl TrainingScreen {
                             this.refresh(cx);
                         }
                     }
-                }
-            },
-        ));
+                }),
+            );
         let pay = self.pay_dialog.clone();
-        self._subscriptions.push(cx.subscribe_in(
-            &pay,
-            window,
-            |this, _, event, window, cx| this.on_pay_event(event, window, cx),
-        ));
+        self._subscriptions
+            .push(cx.subscribe_in(&pay, window, |this, _, event, window, cx| {
+                this.on_pay_event(event, window, cx)
+            }));
         let receipt = self.receipt_dialog.clone();
-        self._subscriptions.push(cx.subscribe_in(
-            &receipt,
-            window,
-            |this, _, event, _, cx| {
+        self._subscriptions
+            .push(cx.subscribe_in(&receipt, window, |this, _, event, _, cx| {
                 if matches!(event, ReceiptEvent::Closed) {
                     if let Some(session) = &mut this.session {
                         session.receipt_closed = session.receipt_shown;
                     }
                     this.refresh(cx);
                 }
-            },
-        ));
+            }));
     }
 
     // ── Session lifecycle ─────────────────────────────────────────────────
@@ -225,7 +211,9 @@ impl TrainingScreen {
                     select.set_selected_index(Some(IndexPath::new(0)), window, cx);
                 });
                 for input in [&self.float, &self.scan, &self.discount] {
-                    input.update(cx, |input, cx| input.set_value(float_text.clone(), window, cx));
+                    input.update(cx, |input, cx| {
+                        input.set_value(float_text.clone(), window, cx)
+                    });
                 }
                 self.receipt_dialog.update(cx, |dialog, _| dialog.clear());
                 window.push_notification(
@@ -274,7 +262,8 @@ impl TrainingScreen {
             Ok(next) => session.cart = next,
             Err(error) => window.push_notification(Notification::error(error.to_string()), cx),
         }
-        self.scan.update(cx, |input, cx| input.set_value("", window, cx));
+        self.scan
+            .update(cx, |input, cx| input.set_value("", window, cx));
         self.refresh(cx);
     }
 
@@ -306,7 +295,8 @@ impl TrainingScreen {
         };
         match session.repo.open_shift(minor, session.cur.code) {
             Ok(_) => {
-                self.float.update(cx, |input, cx| input.set_value("", window, cx));
+                self.float
+                    .update(cx, |input, cx| input.set_value("", window, cx));
                 self.refresh(cx);
             }
             Err(error) => window.push_notification(
@@ -325,8 +315,10 @@ impl TrainingScreen {
             .parse::<f64>()
             .map(|value| (value * 100.0).round() as i64)
             .unwrap_or(0);
-        session.cart =
-            cart::set_order_discount(&session.cart, (bps > 0).then_some(Discount::Percent { bps }));
+        session.cart = cart::set_order_discount(
+            &session.cart,
+            (bps > 0).then_some(Discount::Percent { bps }),
+        );
         self.refresh(cx);
     }
 
@@ -344,7 +336,11 @@ impl TrainingScreen {
 
     fn totals(&self) -> Option<CartTotals> {
         let session = self.session.as_ref()?;
-        Some(cart::compute_totals(&session.cart, &session.tax_rates, session.cur))
+        Some(cart::compute_totals(
+            &session.cart,
+            &session.tax_rates,
+            session.cur,
+        ))
     }
 
     fn attached_customer(&self) -> Option<Customer> {
@@ -360,14 +356,23 @@ impl TrainingScreen {
         let Some(totals) = self.totals() else {
             return;
         };
-        let customer = self.attached_customer().map(|c| super::register::CustomerSnapshot {
-            id: c.id,
-            name: c.name,
-            points: c.points,
-        });
+        let customer = self
+            .attached_customer()
+            .map(|c| super::register::CustomerSnapshot {
+                id: c.id,
+                name: c.name,
+                points: c.points,
+            });
         let cur = session.cur;
         self.pay_dialog.update(cx, |dialog, cx| {
-            dialog.reset(totals.total_minor, customer, session.settings.loyalty.clone(), cur, window, cx)
+            dialog.reset(
+                totals.total_minor,
+                customer,
+                session.settings.loyalty.clone(),
+                cur,
+                window,
+                cx,
+            )
         });
         let pay = self.pay_dialog.clone();
         let surface = cx.theme().popover;
@@ -405,7 +410,11 @@ impl TrainingScreen {
             let Some(shift) = session.repo.active_shift().map_err(|e| e.to_string())? else {
                 return Err("No open shift. Open one first.".to_string());
             };
-            (shift, self.totals().ok_or("no cart")?, session.settings.loyalty.clone())
+            (
+                shift,
+                self.totals().ok_or("no cart")?,
+                session.settings.loyalty.clone(),
+            )
         };
         let session = self.session.as_ref().expect("checked above");
         let customer = self.attached_customer();
@@ -421,7 +430,11 @@ impl TrainingScreen {
 
         let mut effective: Vec<Tender> = Vec::with_capacity(tenders.len() + 1);
         if redeem_value > 0 {
-            effective.push(payments::new_tender(TenderMethod::Loyalty, redeem_value, None));
+            effective.push(payments::new_tender(
+                TenderMethod::Loyalty,
+                redeem_value,
+                None,
+            ));
         }
         effective.extend(tenders.iter().cloned());
 
@@ -573,9 +586,8 @@ impl TrainingScreen {
                                 .trigger(|button| button.label("Cancel").outline().small()),
                         )
                         .child(
-                            DialogAction::new().child(
-                                Button::new("ok").label("Confirm close").primary().small(),
-                            ),
+                            DialogAction::new()
+                                .child(Button::new("ok").label("Confirm close").primary().small()),
                         ),
                 )
                 .on_ok(move |_, window, cx| {
@@ -705,10 +717,12 @@ impl Session {
     /// config in; training parks its progress under a `training` key the
     /// companion ignores.
     fn progress(&self) -> Vec<u8> {
-        let Ok(raw): Result<String, _> = self
-            .repo
-            .conn()
-            .query_row("SELECT config_json FROM settings WHERE id = 1", [], |r| r.get(0))
+        let Ok(raw): Result<String, _> =
+            self.repo
+                .conn()
+                .query_row("SELECT config_json FROM settings WHERE id = 1", [], |r| {
+                    r.get(0)
+                })
         else {
             return vec![];
         };
@@ -719,7 +733,9 @@ impl Session {
         let raw: String = self
             .repo
             .conn()
-            .query_row("SELECT config_json FROM settings WHERE id = 1", [], |r| r.get(0))
+            .query_row("SELECT config_json FROM settings WHERE id = 1", [], |r| {
+                r.get(0)
+            })
             .map_err(|e| e.to_string())?;
         let mut config: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| e.to_string())?;
@@ -806,7 +822,11 @@ impl LessonState {
 fn last_sale(repo: &Repo) -> Option<Sale> {
     let id: String = repo
         .conn()
-        .query_row("SELECT id FROM sales ORDER BY at DESC, rowid DESC LIMIT 1", [], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM sales ORDER BY at DESC, rowid DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
         .ok()?;
     repo.sale_by_id(&id).ok().flatten()
 }
@@ -841,13 +861,14 @@ fn lesson_complete(number: u8, session: &Session, state: &LessonState) -> bool {
             .as_ref()
             .is_some_and(|shift| shift.opening_float_minor == LESSON_FLOAT_MINOR),
         2 => !session.cart.lines.is_empty(),
-        3 => {
-            session.max_line_qty >= 2.0
-                && session.cart.lines.iter().any(|line| line.qty == 1.0)
-        }
+        3 => session.max_line_qty >= 2.0 && session.cart.lines.iter().any(|line| line.qty == 1.0),
         4 => session.cart.customer_id.is_some(),
-        5 => session.cart.order_discount
-            == Some(Discount::Percent { bps: LESSON_DISCOUNT_BPS }),
+        5 => {
+            session.cart.order_discount
+                == Some(Discount::Percent {
+                    bps: LESSON_DISCOUNT_BPS,
+                })
+        }
         6 => state.last_sale.as_ref().is_some_and(|sale| {
             sale.change_minor > 0
                 && sale.tenders.iter().any(|tender| {
@@ -856,14 +877,11 @@ fn lesson_complete(number: u8, session: &Session, state: &LessonState) -> bool {
                 })
         }),
         7 => session.receipt_closed && state.last_sale.is_some(),
-        8 => state
-            .closed_shift
-            .as_ref()
-            .is_some_and(|shift| {
-                shift
-                    .counted_minor
-                    .is_some_and(|counted| counted > 0 && counted == state.closed_expected_cash)
-            }),
+        8 => state.closed_shift.as_ref().is_some_and(|shift| {
+            shift
+                .counted_minor
+                .is_some_and(|counted| counted > 0 && counted == state.closed_expected_cash)
+        }),
         _ => false,
     }
 }
@@ -921,14 +939,15 @@ impl TrainingScreen {
                             ),
                     )
                     .child(
-                        div().text_sm().text_color(cx.theme().muted_foreground).child(
-                            SharedString::from(format!(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(format!(
                                 "Copies the live ledger to {} and runs {} guided lessons against \
                                  the copy — trainee sales never touch the real ledger.",
                                 sandbox_display_path(),
                                 LESSONS.len(),
-                            )),
-                        ),
+                            ))),
                     )
                     .child(
                         Button::new("start-training")
@@ -988,9 +1007,7 @@ impl TrainingScreen {
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(sandbox_display_path())),
                     )
-                    .child(
-                        div().flex_1(),
-                    )
+                    .child(div().flex_1())
                     .child(
                         Button::new("reset-training")
                             .outline()
@@ -1050,7 +1067,12 @@ impl TrainingScreen {
     }
 
     /// n/8 with a fraction bar, then the full checklist with checkmarks.
-    fn render_progress(&self, cx: &Context<Self>, completed: usize, all_done: bool) -> impl IntoElement {
+    fn render_progress(
+        &self,
+        cx: &Context<Self>,
+        completed: usize,
+        all_done: bool,
+    ) -> impl IntoElement {
         let fraction = completed as f32 / LESSONS.len() as f32;
         v_flex()
             .gap_1p5()
@@ -1091,71 +1113,65 @@ impl TrainingScreen {
                         h_flex()
                             .h_full()
                             .w_full()
-                            .child(
-                                div()
-                                    .h_full()
-                                    .flex_grow(fraction)
-                                    .rounded(px(3.))
-                                    .bg(if all_done {
-                                        cx.theme().success
-                                    } else {
-                                        cx.theme().accent
-                                    }),
-                            )
+                            .child(div().h_full().flex_grow(fraction).rounded(px(3.)).bg(
+                                if all_done {
+                                    cx.theme().success
+                                } else {
+                                    cx.theme().accent
+                                },
+                            ))
                             .child(div().h_full().flex_grow(1.0 - fraction)),
                     ),
             )
-            .child(
-                h_flex().gap_2().flex_wrap().children(LESSONS.iter().map(
-                    |(number, title, _)| {
-                        let done = self
-                            .session
-                            .as_ref()
-                            .is_some_and(|s| s.completed.contains(number));
-                        let is_current = *number == self.current_lesson();
-                        h_flex()
-                            .id(SharedString::from(format!("lesson-chip-{number}")))
-                            .gap_1p5()
-                            .items_center()
-                            .px_2()
-                            .py_1()
-                            .rounded(px(999.))
-                            .border_1()
-                            .border_color(if done {
-                                cx.theme().success
-                            } else if is_current {
-                                crate::theme::accent_dim()
-                            } else {
-                                cx.theme().border
-                            })
-                            .child(if done {
-                                Icon::new(IconName::CircleCheck)
-                                    .with_size(px(12.))
-                                    .text_color(cx.theme().success)
-                                    .into_any_element()
-                            } else {
-                                div()
-                                    .text_size(px(10.5))
-                                    .font_features(crate::theme::tabular())
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(SharedString::from(number.to_string()))
-                                    .into_any_element()
-                            })
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(if done {
-                                        cx.theme().muted_foreground
-                                    } else if is_current {
-                                        cx.theme().accent
-                                    } else {
-                                        cx.theme().foreground
-                                    })
-                                    .child(SharedString::from(*title)),
-                            )
-                    },
-                )),
-            )
+            .child(h_flex().gap_2().flex_wrap().children(LESSONS.iter().map(
+                |(number, title, _)| {
+                    let done = self
+                        .session
+                        .as_ref()
+                        .is_some_and(|s| s.completed.contains(number));
+                    let is_current = *number == self.current_lesson();
+                    h_flex()
+                        .id(SharedString::from(format!("lesson-chip-{number}")))
+                        .gap_1p5()
+                        .items_center()
+                        .px_2()
+                        .py_1()
+                        .rounded(px(999.))
+                        .border_1()
+                        .border_color(if done {
+                            cx.theme().success
+                        } else if is_current {
+                            crate::theme::accent_dim()
+                        } else {
+                            cx.theme().border
+                        })
+                        .child(if done {
+                            Icon::new(IconName::CircleCheck)
+                                .with_size(px(12.))
+                                .text_color(cx.theme().success)
+                                .into_any_element()
+                        } else {
+                            div()
+                                .text_size(px(10.5))
+                                .font_features(crate::theme::tabular())
+                                .text_color(cx.theme().muted_foreground)
+                                .child(SharedString::from(number.to_string()))
+                                .into_any_element()
+                        })
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(if done {
+                                    cx.theme().muted_foreground
+                                } else if is_current {
+                                    cx.theme().accent
+                                } else {
+                                    cx.theme().foreground
+                                })
+                                .child(SharedString::from(*title)),
+                        )
+                },
+            )))
     }
 
     /// The current lesson's instruction and its interactive control.
@@ -1229,17 +1245,10 @@ impl TrainingScreen {
                         .secondary()
                         .label(SharedString::from(fmt_money(
                             LESSON_FLOAT_MINOR,
-                            self.session
-                                .as_ref()
-                                .map(|s| s.cur)
-                                .unwrap_or(CUR_FALLBACK),
+                            self.session.as_ref().map(|s| s.cur).unwrap_or(CUR_FALLBACK),
                         )))
                         .on_click(cx.listener(|this, _, window, cx| {
-                            let cur = this
-                                .session
-                                .as_ref()
-                                .map(|s| s.cur)
-                                .unwrap_or(CUR_FALLBACK);
+                            let cur = this.session.as_ref().map(|s| s.cur).unwrap_or(CUR_FALLBACK);
                             this.float.update(cx, |input, cx| {
                                 input.set_value(LESSON_FLOAT_MINOR.to_string(), window, cx)
                             });
@@ -1295,22 +1304,28 @@ impl TrainingScreen {
                     },
                 )
                 .into_any_element(),
-            7 => h_flex().gap_2().child(
-                Button::new("training-show-receipt")
-                    .secondary()
-                    .label("Show receipt")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.show_receipt_again(window, cx);
-                    })),
-            ).into_any_element(),
-            8 => h_flex().gap_2().child(
-                Button::new("training-close-shift")
-                    .danger()
-                    .label("Close shift…")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_close_dialog(window, cx);
-                    })),
-            ).into_any_element(),
+            7 => h_flex()
+                .gap_2()
+                .child(
+                    Button::new("training-show-receipt")
+                        .secondary()
+                        .label("Show receipt")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.show_receipt_again(window, cx);
+                        })),
+                )
+                .into_any_element(),
+            8 => h_flex()
+                .gap_2()
+                .child(
+                    Button::new("training-close-shift")
+                        .danger()
+                        .label("Close shift…")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_close_dialog(window, cx);
+                        })),
+                )
+                .into_any_element(),
             // Lessons 3, 6 run on the cart panel's controls.
             _ => div().into_any_element(),
         }
@@ -1364,10 +1379,14 @@ impl TrainingScreen {
                     .primary()
                     .large()
                     .w_full()
-                    .label(SharedString::from(match session.repo.active_shift().ok().flatten() {
-                        Some(_) => format!("Pay — {}", fmt_money(totals.total_minor, session.cur)),
-                        None => "Open a shift to sell".to_string(),
-                    }))
+                    .label(SharedString::from(
+                        match session.repo.active_shift().ok().flatten() {
+                            Some(_) => {
+                                format!("Pay — {}", fmt_money(totals.total_minor, session.cur))
+                            }
+                            None => "Open a shift to sell".to_string(),
+                        },
+                    ))
                     .disabled(session.cart.lines.is_empty())
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_pay(window, cx);
@@ -1445,9 +1464,7 @@ impl TrainingScreen {
                                     .on_click(cx.listener({
                                         let line_id = line.id.clone();
                                         let qty = line.qty - 1.0;
-                                        move |this, _, _, cx| {
-                                            this.set_line_qty(&line_id, qty, cx)
-                                        }
+                                        move |this, _, _, cx| this.set_line_qty(&line_id, qty, cx)
                                     })),
                             )
                             .child(
@@ -1456,10 +1473,7 @@ impl TrainingScreen {
                                     .text_right()
                                     .text_sm()
                                     .font_features(crate::theme::tabular())
-                                    .child(SharedString::from(fmt_money(
-                                        gross_minor,
-                                        session.cur,
-                                    ))),
+                                    .child(SharedString::from(fmt_money(gross_minor, session.cur))),
                             )
                             .child(
                                 Button::new(SharedString::from(format!("qty-inc-{}", line.id)))
@@ -1469,23 +1483,18 @@ impl TrainingScreen {
                                     .on_click(cx.listener({
                                         let line_id = line.id.clone();
                                         let qty = line.qty + 1.0;
-                                        move |this, _, _, cx| {
-                                            this.set_line_qty(&line_id, qty, cx)
-                                        }
+                                        move |this, _, _, cx| this.set_line_qty(&line_id, qty, cx)
                                     })),
                             )
                             .child(
-                                Button::new(SharedString::from(format!(
-                                    "line-remove-{}",
-                                    line.id
-                                )))
-                                .ghost()
-                                .small()
-                                .label("×")
-                                .on_click(cx.listener({
-                                    let line_id = line.id.clone();
-                                    move |this, _, _, cx| this.remove_line(&line_id, cx)
-                                })),
+                                Button::new(SharedString::from(format!("line-remove-{}", line.id)))
+                                    .ghost()
+                                    .small()
+                                    .label("×")
+                                    .on_click(cx.listener({
+                                        let line_id = line.id.clone();
+                                        move |this, _, _, cx| this.remove_line(&line_id, cx)
+                                    })),
                             ),
                     ),
             );
@@ -1532,7 +1541,11 @@ impl TrainingScreen {
                     cx.theme().accent,
                 ))
             })
-            .child(row("Tax", fmt_money(totals.tax_minor, cur), cx.theme().muted_foreground))
+            .child(row(
+                "Tax",
+                fmt_money(totals.tax_minor, cur),
+                cx.theme().muted_foreground,
+            ))
             .child(
                 h_flex()
                     .justify_between()

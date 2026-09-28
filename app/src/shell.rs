@@ -14,8 +14,8 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Root, Sizable as _};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Window, div, px,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px,
 };
 
 use crate::screens::{
@@ -205,7 +205,10 @@ impl AppShell {
                     (cx.theme().sidebar_foreground, gpui_kit::transparent_black())
                 };
                 v_flex()
-                    .id(SharedString::from(format!("nav-{}", item.label().to_lowercase())))
+                    .id(SharedString::from(format!(
+                        "nav-{}",
+                        item.label().to_lowercase()
+                    )))
                     .cursor_pointer()
                     .w(px(64.))
                     .pt(px(8.))
@@ -225,16 +228,8 @@ impl AppShell {
                     .on_click(cx.listener(move |shell, _, window, cx| {
                         shell.navigate(item, window, cx);
                     }))
-                    .child(
-                        Icon::new(item.icon())
-                            .with_size(px(17.))
-                            .text_color(fg),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(10.5))
-                            .child(item.label()),
-                    )
+                    .child(Icon::new(item.icon()).with_size(px(17.)).text_color(fg))
+                    .child(div().text_size(px(10.5)).child(item.label()))
             }))
     }
 
