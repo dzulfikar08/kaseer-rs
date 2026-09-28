@@ -3540,7 +3540,7 @@ dependencies = [
 
 [[package]]
 name = "kaseer"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "gpui-kit",
  "kaseer-core",

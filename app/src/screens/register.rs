@@ -559,7 +559,7 @@ impl RegisterScreen {
     }
 
     fn render_category_chips(&self, cx: &Context<Self>) -> impl IntoElement {
-        let mut row = h_flex().gap(px(8.)).flex_wrap().flex_none();
+        let mut row = h_flex().gap(px(8.)).flex_none().overflow_x_scrollbar();
         row = row.child(super::chip(
             cx,
             "cat-all",
@@ -616,7 +616,7 @@ impl RegisterScreen {
         let stock_note = self
             .stock
             .get(&product.id)
-            .map(|on_hand| format!("{on_hand} in stock"));
+            .map(|on_hand| on_hand.to_string());
         let known = has_knowledge(product);
         // Photo band (the web `.band`): pulled from the companion into the
         // ledger's images/ dir. An empty path or a not-yet-downloaded file
@@ -632,21 +632,33 @@ impl RegisterScreen {
             .when(known, |body| body.pr(px(28.)))
             .child(
                 div()
-                    .text_size(px(13.5))
+                    .text_size(px(13.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .truncate()
+                    // Two lines before the ellipsis: single-line truncation
+                    // shredded every long name at narrow grid widths.
+                    .line_clamp(2)
                     .child(SharedString::from(product.name.clone())),
             )
             .child(
                 div()
                     .text_size(px(11.))
                     .text_color(cx.theme().muted_foreground)
+                    .truncate()
                     .child(SharedString::from(product.sku.clone())),
             )
+            .when_some(stock_note, |body, note| {
+                // Stock lives on its own line so the count can never read
+                // as extra digits of the price.
+                body.child(
+                    div()
+                        .mt_1()
+                        .text_size(px(10.5))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(format!("In stock · {note}"))),
+                )
+            })
             .child(
                 h_flex()
-                    .justify_between()
-                    .items_end()
                     .mt_auto()
                     .child(
                         div()
@@ -657,15 +669,7 @@ impl RegisterScreen {
                                 product.price_minor,
                                 self.currency,
                             ))),
-                    )
-                    .when_some(stock_note, |body, note| {
-                        body.child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(cx.theme().muted_foreground)
-                                .child(SharedString::from(note)),
-                        )
-                    }),
+                    ),
             );
         let card = v_flex()
             .id(SharedString::from(format!("product-{}", product.id)))
@@ -783,11 +787,16 @@ impl RegisterScreen {
         h_flex()
             .justify_between()
             .items_center()
+            .gap_2()
             .flex_none()
             .child(
                 // The web cart header is the panel kicker: uppercase 12px,
-                // letter-spaced, muted.
+                // letter-spaced, muted. It ellipsizes instead of colliding
+                // with the customer select at narrow widths.
                 div()
+                    .min_w_0()
+                    .flex_1()
+                    .truncate()
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().muted_foreground)
@@ -796,7 +805,12 @@ impl RegisterScreen {
                         self.cart.lines.len()
                     ))),
             )
-            .child(div().w(px(160.)).child(Select::new(&self.customer_select)))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(150.))
+                    .child(Select::new(&self.customer_select)),
+            )
     }
 
     fn render_cart_lines(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -817,11 +831,17 @@ impl RegisterScreen {
                     div()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child("Cart is empty. Scan a barcode or tap a product."),
+                        .child("Cart is empty."),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(cx.theme().muted_foreground)
+                        .opacity(0.8)
+                        .child("Scan a barcode or tap a product to start the sale."),
                 )
                 .into_any_element();
         }
-
         let mut list = v_flex()
             .flex_grow(1.)
             .min_h_0()
@@ -923,7 +943,6 @@ impl RegisterScreen {
             )
             .child(
                 Button::new("discount-apply")
-                    .small()
                     .label("Apply %")
                     .on_click(cx.listener(|this, _, _, cx| this.apply_order_percent(cx))),
             )
@@ -1005,17 +1024,48 @@ impl RegisterScreen {
     }
 
     fn render_pay_button(&self, cx: &Context<Self>, totals: &CartTotals) -> impl IntoElement {
+        let payable = !self.cart.lines.is_empty() && self.active_shift.is_some();
         let label = match &self.active_shift {
             Some(_) => format!("Pay — {}", fmt_money(totals.total_minor, self.currency)),
             None => "Open a shift to sell".to_string(),
         };
-        Button::new("pay")
-            .primary()
-            .large()
-            .w_full()
-            .label(SharedString::from(label))
-            .disabled(self.cart.lines.is_empty() || self.active_shift.is_none())
-            .on_click(cx.listener(|this, _, window, cx| this.open_pay(window, cx)))
+        // The kit's disabled primary drops to 15% opacity, which reads as a
+        // rendering glitch rather than a locked control. Render the locked
+        // state ourselves: visible surface, explicit hint, no ambiguity.
+        if payable {
+            Button::new("pay")
+                .primary()
+                .large()
+                .w_full()
+                .label(SharedString::from(label))
+                .on_click(cx.listener(|this, _, window, cx| this.open_pay(window, cx)))
+                .into_any_element()
+        } else {
+            v_flex()
+                .id("pay-locked")
+                .w_full()
+                .gap_1()
+                .items_center()
+                .py(px(12.))
+                .rounded(cx.theme().radius)
+                .bg(cx.theme().secondary)
+                .border_1()
+                .border_color(cx.theme().border)
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(SharedString::from(label)),
+                )
+                .child(
+                    div().text_size(px(11.)).child(match &self.active_shift {
+                        Some(_) => "Add items to the sale to enable payment",
+                        None => "Open a shift from the Shift screen first",
+                    }),
+                )
+                .into_any_element()
+        }
     }
 }
 
