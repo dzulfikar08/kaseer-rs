@@ -1,16 +1,16 @@
-//! Kaseer design tokens, ported from the kaseer-web SPA (`src/web/theme.css`)
-//! onto the GPUI Kit theme. The web stylesheet is the approved pixel
-//! reference; its `:root` values win over the older kaseer/DESIGN.md set.
+//! Kaseer design tokens on the GPUI Kit theme.
 //!
 //! This module is the only place where raw palette hex values live. Screens
 //! read semantic roles from `cx.theme()`, never literals (Design Guides,
 //! "Color and themes").
 //!
-//! theme.css mapping (brand rollout 2026-09-28):
-//! - midnight neutrals `#0a0a0f` `#14161f` `#1c1f2b`, border `#2a2f3c`
-//! - text `#f9fafc`, muted `#98a2b3`
-//! - single indigo accent `#6366f1` (dim `#4f46e5`), white foreground
-//! - states: danger `#f87171`, ok emerald `#10b981`
+//! Brand board mapping (2026-09-28):
+//! - Midnight canvas `#0A0A0F`, navy surfaces `#0F172A` `#172136`
+//!   (board Gray 900 family), border `#27314C`
+//! - text `#F9FAFC`, muted `#64748B` (board Gray 500)
+//! - single Electric Blue accent `#3B82F6` (dim `#2563EB` — hover border,
+//!   focus ring), white foreground on accent
+//! - states: danger `#F87171`, ok emerald `#10B981`
 //! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
 //! - 'Inter' (embedded via `assets/fonts`), 14px base, tabular
 //!   numerals on money
@@ -18,18 +18,18 @@
 use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{App, Hsla, Pixels, px};
 
-const BG: &str = "#0a0a0f";
-const SURFACE: &str = "#14161f";
-const SURFACE_2: &str = "#1c1f2b";
-const BORDER: &str = "#2a2f3c";
-const TEXT: &str = "#f9fafc";
-const MUTED: &str = "#98a2b3";
-const ACCENT: &str = "#6366f1";
-const ACCENT_DIM: &str = "#4f46e5";
-const DANGER: &str = "#f87171";
-const OK: &str = "#10b981";
+const BG: &str = "#0A0A0F";
+const SURFACE: &str = "#0F172A";
+const SURFACE_2: &str = "#172136";
+const BORDER: &str = "#27314C";
+const TEXT: &str = "#F9FAFC";
+const MUTED: &str = "#64748B";
+const ACCENT: &str = "#3B82F6";
+const ACCENT_DIM: &str = "#2563EB";
+const DANGER: &str = "#F87171";
+const OK: &str = "#10B981";
 /// The web `.btn.primary`/`.chip.active` foreground: white keeps the
-/// indigo readable.
+/// Electric Blue readable.
 const ON_ACCENT: &str = "#ffffff";
 
 /// The app's embedded sans family. Matches the family name baked into the
