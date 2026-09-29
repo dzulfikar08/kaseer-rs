@@ -553,13 +553,27 @@ impl RegisterScreen {
             .flex_grow(1.6)
             .min_w_0()
             .gap_2()
-            .child(Input::new(&self.query).id("search"))
+            // The input's editor renders size_full — placed bare in a flex
+            // column it would take the whole column height and starve the
+            // grid. The fixed-height wrapper pins it to one line.
+            .child(
+                div()
+                    .h(px(38.))
+                    .flex_shrink_0()
+                    .overflow_hidden()
+                    .child(Input::new(&self.query).id("search")),
+            )
             .child(self.render_category_chips(cx))
             .child(self.render_product_grid(cx, products))
     }
 
     fn render_category_chips(&self, cx: &Context<Self>) -> impl IntoElement {
-        let mut row = h_flex().gap(px(8.)).flex_none().overflow_x_scrollbar();
+        let mut row = h_flex()
+            .gap(px(8.))
+            .flex_none()
+            .flex_shrink_0()
+            .h(px(34.))
+            .overflow_x_scrollbar();
         row = row.child(super::chip(
             cx,
             "cat-all",
