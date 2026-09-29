@@ -677,6 +677,7 @@ impl RegisterScreen {
                     .child(
                         div()
                             .text_size(px(14.))
+                            .font_family(crate::theme::FONT_MONO)
                             .font_features(crate::theme::tabular())
                             .text_color(cx.theme().accent)
                             .child(SharedString::from(fmt_money(
@@ -918,6 +919,7 @@ impl RegisterScreen {
                             .w(px(74.))
                             .text_right()
                             .text_sm()
+                            .font_family(crate::theme::FONT_MONO)
                             .font_features(crate::theme::tabular())
                             .child(SharedString::from(fmt_money(gross_minor, self.currency))),
                     )
@@ -986,7 +988,8 @@ impl RegisterScreen {
             .child(div().text_color(color).child(SharedString::from(label)))
             .child(
                 div()
-                    .font_features(crate::theme::tabular())
+                    .font_family(crate::theme::FONT_MONO)
+                            .font_features(crate::theme::tabular())
                     .text_color(color)
                     .child(SharedString::from(value)),
             )
@@ -1028,6 +1031,7 @@ impl RegisterScreen {
                         div()
                             .text_lg()
                             .font_semibold()
+                            .font_family(crate::theme::FONT_MONO)
                             .font_features(crate::theme::tabular())
                             .child(SharedString::from(fmt_money(
                                 totals.total_minor,
@@ -1301,6 +1305,7 @@ impl PayDialog {
                         div()
                             .text_xl()
                             .font_semibold()
+                            .font_family(crate::theme::FONT_MONO)
                             .font_features(crate::theme::tabular())
                             .text_color(color)
                             .child(SharedString::from(fmt_money(value, self.currency))),
@@ -1378,7 +1383,8 @@ impl PayDialog {
             .child(
                 div()
                     .text_xs()
-                    .font_features(crate::theme::tabular())
+                    .font_family(crate::theme::FONT_MONO)
+                            .font_features(crate::theme::tabular())
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
                         "= {}",
@@ -1417,7 +1423,8 @@ impl PayDialog {
                             .child(
                                 div()
                                     .text_sm()
-                                    .font_features(crate::theme::tabular())
+                                    .font_family(crate::theme::FONT_MONO)
+                            .font_features(crate::theme::tabular())
                                     .child(SharedString::from(fmt_money(
                                         tender.applied_minor,
                                         self.currency,
@@ -1633,7 +1640,8 @@ impl ReceiptDialog {
             )
             .child(
                 div()
-                    .font_features(crate::theme::tabular())
+                    .font_family(crate::theme::FONT_MONO)
+                            .font_features(crate::theme::tabular())
                     .text_base()
                     .font_semibold()
                     .text_color(color)

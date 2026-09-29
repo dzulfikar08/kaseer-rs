@@ -4,26 +4,31 @@
 //! read semantic roles from `cx.theme()`, never literals (Design Guides,
 //! "Color and themes").
 //!
-//! Brand board mapping (2026-09-28):
-//! - Midnight canvas `#0A0A0F`, navy surfaces `#0F172A` `#172136`
-//!   (board Gray 900 family), border `#27314C`
-//! - text `#F9FAFC`, muted `#64748B` (board Gray 500)
-//! - single Electric Blue accent `#3B82F6` (dim `#2563EB` — hover border,
-//!   focus ring), white foreground on accent
+//! Canvas mapping (pencil-new.pen, 2026-09-29 — the blue redesign board):
+//! - Midnight canvas `#0A0A0F`, rail `#0F1526`, surfaces `#17233B`
+//!   `#1F2C48`, hover `#26355A`
+//! - borders translucent white `#ffffff14` / `#ffffff26`
+//! - text `#F1F5F9`, dim `#94A3B8`, faint `#64748B`
+//! - single Electric Blue accent `#3B82F6` (dim `#2563EB` — focus ring),
+//!   white foreground on accent
 //! - states: danger `#F87171`, ok emerald `#10B981`
 //! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
-//! - 'Inter' (embedded via `assets/fonts`), 14px base, tabular
-//!   numerals on money
+//! - IBM Plex Sans + IBM Plex Mono (embedded via `assets/fonts`), 14px
+//!   base, money in Plex Mono
 
 use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{App, Hsla, Pixels, px};
 
 const BG: &str = "#0A0A0F";
-const SURFACE: &str = "#0F172A";
-const SURFACE_2: &str = "#172136";
-const BORDER: &str = "#27314C";
-const TEXT: &str = "#F9FAFC";
-const MUTED: &str = "#64748B";
+const RAIL: &str = "#0F1526";
+const SURFACE: &str = "#17233B";
+const SURFACE_2: &str = "#1F2C48";
+const HOVER: &str = "#26355A";
+const BORDER: &str = "#ffffff14";
+const BORDER_STRONG: &str = "#ffffff26";
+const TEXT: &str = "#F1F5F9";
+const TEXT_DIM: &str = "#94A3B8";
+const TEXT_FAINT: &str = "#64748B";
 const ACCENT: &str = "#3B82F6";
 const ACCENT_DIM: &str = "#2563EB";
 const DANGER: &str = "#F87171";
@@ -35,7 +40,10 @@ const ON_ACCENT: &str = "#ffffff";
 /// The app's embedded sans family. Matches the family name baked into the
 /// TTFs under `assets/fonts`, which `install` registers with the text
 /// system; a family set explicitly on the theme is used as-is.
-pub const FONT_SANS: &str = "Inter";
+pub const FONT_SANS: &str = "IBM Plex Sans";
+
+/// Money, key caps, and tabular readouts — the canvas `font-mono`.
+pub const FONT_MONO: &str = "IBM Plex Mono";
 
 /// The web `.receipt`: white paper, near-black ink. Functions because
 /// `Hsla::parse_hex` is not `const`.
@@ -69,16 +77,24 @@ pub fn accent_dim() -> Hsla {
     token(ACCENT_DIM)
 }
 
+/// `--accent-soft`: the tinted fill behind active chips and the F2 pay key.
+pub fn accent_soft() -> Hsla {
+    token("#3B82F626")
+}
+
 /// Load the dark base theme, then repaint every surface role with the web
 /// palette. Call once after `gpui_kit::init`, before opening windows.
 pub fn install(cx: &mut App) {
     let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Regular.ttf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-SemiBold.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-SemiBold.ttf")),
     ];
     cx.text_system()
         .add_fonts(fonts)
-        .expect("embedded Inter loads");
+        .expect("embedded IBM Plex loads");
 
     Theme::change(ThemeMode::Dark, None, cx);
 
@@ -106,7 +122,7 @@ pub fn install(cx: &mut App) {
         theme.button_secondary_hover = token(SURFACE_2);
         theme.button_secondary_active = token(SURFACE_2);
         theme.muted = token(SURFACE_2);
-        theme.muted_foreground = token(MUTED);
+        theme.muted_foreground = token(TEXT_DIM);
         theme.popover = token(SURFACE);
         theme.popover_foreground = token(TEXT);
 
@@ -129,12 +145,12 @@ pub fn install(cx: &mut App) {
         theme.link_hover = token(ACCENT_DIM);
         theme.link_active = token(ACCENT_DIM);
 
-        // The nav rail: web `.rail` paints the strip `--surface` with the
-        // active item on `--surface-2`.
-        theme.sidebar = token(SURFACE);
-        theme.sidebar_foreground = token(MUTED);
+        // The nav rail: web `.rail` paints the strip `--rail` with the
+        // active item on the hover surface in accent.
+        theme.sidebar = token(RAIL);
+        theme.sidebar_foreground = token(TEXT_DIM);
         theme.sidebar_border = token(BORDER);
-        theme.sidebar_accent = token(SURFACE_2);
+        theme.sidebar_accent = token(HOVER);
         theme.sidebar_accent_foreground = token(ACCENT);
         theme.sidebar_primary = token(ACCENT);
         theme.sidebar_primary_foreground = token(ON_ACCENT);
@@ -161,9 +177,10 @@ pub fn install(cx: &mut App) {
         theme.radius = px(9.);
         theme.radius_lg = px(14.);
 
-        // The web ships 'Inter' with a system-ui fallback; the
-        // embedded family covers it, so name it directly.
+        // The canvas sets IBM Plex Sans as the app family and Plex Mono
+        // for money/readouts; both families are embedded above.
         theme.font_family = FONT_SANS.into();
+        theme.mono_font_family = FONT_MONO.into();
 
         // Buttons and other styled components read the stored token
         // projection, not the color roles, so re-project after recoloring.

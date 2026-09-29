@@ -25,11 +25,11 @@ struct AppAssets;
 impl AssetSource for AppAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         match path {
-            "fonts/Inter-Regular.ttf" => Ok(Some(Cow::Borrowed(include_bytes!(
-                "../assets/fonts/Inter-Regular.ttf"
+            "fonts/IBMPlexSans-Regular.ttf" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/fonts/IBMPlexSans-Regular.ttf"
             )))),
-            "fonts/Inter-SemiBold.ttf" => Ok(Some(Cow::Borrowed(include_bytes!(
-                "../assets/fonts/Inter-SemiBold.ttf"
+            "fonts/IBMPlexSans-SemiBold.ttf" => Ok(Some(Cow::Borrowed(include_bytes!(
+                "../assets/fonts/IBMPlexSans-SemiBold.ttf"
             )))),
             _ => gpui_kit::assets::AllAssets.load(path),
         }
@@ -37,7 +37,10 @@ impl AssetSource for AppAssets {
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut paths = gpui_kit::assets::AllAssets.list(path)?;
-        for font in ["fonts/Inter-Regular.ttf", "fonts/Inter-SemiBold.ttf"] {
+        for font in [
+            "fonts/IBMPlexSans-Regular.ttf",
+            "fonts/IBMPlexSans-SemiBold.ttf",
+        ] {
             if font.starts_with(path) {
                 paths.push(font.into());
             }

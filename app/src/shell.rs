@@ -12,10 +12,11 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Root, Sizable as _};
+use crate::theme::FONT_MONO;
 use gpui_kit::{
-    actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Window, div, px,
+    actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 
 use crate::screens::{
@@ -294,6 +295,8 @@ impl AppShell {
         }
     }
 
+    /// The web `.keybar` renderer lives here with the other shell helpers.
+    /// (moved: trait impls cannot carry extra methods)
     /// Alt+] / Alt+[ walk the rail in order, wrapping at the ends.
     fn cycle(&mut self, dir: isize, window: &mut Window, cx: &mut Context<Self>) {
         let count = NAV_ITEMS.len() as isize;
@@ -304,15 +307,126 @@ impl AppShell {
         let next = NAV_ITEMS[((current + dir).rem_euclid(count)) as usize];
         self.navigate(next, window, cx);
     }
+
+    /// The web `.keybar`: full-width shortcut strip along the bottom edge.
+    /// Every binding is clickable and mirrors the global keymap, so the
+    /// keyboard map is discoverable without docs.
+    fn render_key_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let active = self.active;
+        let caps = NAV_ITEMS.iter().map(|item| {
+            let item = *item;
+            let selected = item == active;
+            let key_fg = if selected {
+                cx.theme().sidebar_accent_foreground
+            } else {
+                cx.theme().foreground
+            };
+            let label_fg = if selected {
+                cx.theme().sidebar_accent_foreground
+            } else {
+                cx.theme().sidebar_foreground
+            };
+            h_flex()
+                .id(SharedString::from(format!("key-{}", item.label().to_lowercase())))
+                .cursor_pointer()
+                .gap(px(5.))
+                .items_center()
+                .pl(px(7.))
+                .pr(px(7.))
+                .pt(px(3.))
+                .pb(px(3.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(if selected {
+                    cx.theme().sidebar_accent_foreground
+                } else {
+                    cx.theme().border
+                })
+                .hover(|style| style.bg(cx.theme().sidebar_accent))
+                .on_click(cx.listener(move |shell, _, window, cx| {
+                    shell.navigate(item, window, cx);
+                }))
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(9.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(key_fg)
+                        .child(item.fkey()),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.5))
+                        .text_color(label_fg)
+                        .child(item.label()),
+                )
+        });
+        h_flex()
+            .id("key-bar")
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(6.))
+            .pl(px(10.))
+            .pr(px(10.))
+            .pt(px(5.))
+            .pb(px(5.))
+            .bg(cx.theme().sidebar)
+            .border_t_1()
+            .border_color(cx.theme().sidebar_border)
+            .children(caps)
+            .child(
+                h_flex()
+                    .id("key-pay")
+                    .cursor_pointer()
+                    .ml_auto()
+                    .gap(px(5.))
+                    .items_center()
+                    .pl(px(7.))
+                    .pr(px(7.))
+                    .pt(px(3.))
+                    .pb(px(3.))
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(cx.theme().accent)
+                    .bg(crate::theme::accent_soft())
+                    .hover(|style| style.bg(cx.theme().accent))
+                    .on_click(cx.listener(|shell, _, window, cx| {
+                        if shell.active == NavItem::Register
+                            && let Some(register) = shell.screens.register.as_ref()
+                        {
+                            register.update(cx, |r, cx| r.open_pay(window, cx));
+                        }
+                    }))
+                    .child(
+                        div()
+                            .font_family(FONT_MONO)
+                            .text_size(px(9.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().sidebar_accent_foreground)
+                            .child("F2"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .text_color(cx.theme().sidebar_accent_foreground)
+                            .child("Pay"),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(9.5))
+                    .font_family(FONT_MONO)
+                    .text_color(cx.theme().sidebar_foreground)
+                    .child("Alt+] / Alt+[ cycle"),
+            )
+    }
 }
 
 impl Render for AppShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let screen = self.screen(self.active, window, cx);
-        h_flex()
-            .id("app-shell")
+        v_flex()
             .size_full()
-            .items_stretch()
             .track_focus(&self.focus)
             // Global keyboard navigation. Text inputs only see keys they
             // handle; everything else bubbles up the focus path to here.
@@ -335,21 +449,29 @@ impl Render for AppShell {
             }))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(self.render_nav(cx))
             .child(
-                div()
+                h_flex()
                     .flex_1()
-                    .min_w_0()
-                    .size_full()
-                    .overflow_hidden()
-                    .child(screen),
+                    .min_h_0()
+                    .items_stretch()
+                    .child(self.render_nav(cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .size_full()
+                            .overflow_hidden()
+                            .child(screen),
+                    ),
             )
+            .child(self.render_key_bar(cx))
             // The window's single overlay mount: dialogs, sheets, and
             // notifications for every screen. Exactly one view per window
             // may call this (gpui-kit 0.6.6 mounts layers through the
             // content view; `Root::render` does not).
             .children(overlay_layers(window, cx))
     }
+
 }
 
 /// The dialog, sheet, and notification overlay layers, which the window's
