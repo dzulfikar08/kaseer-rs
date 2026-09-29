@@ -373,7 +373,7 @@ impl RegisterScreen {
 
     // ── Pay flow ──────────────────────────────────────────────────────────
 
-    fn open_pay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_pay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let total_minor = self.totals().total_minor;
         let customer = self.attached_customer().map(|c| CustomerSnapshot {
             id: c.id,

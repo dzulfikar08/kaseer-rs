@@ -10,7 +10,8 @@ mod theme;
 
 use gpui_kit::component::Root;
 use gpui_kit::{
-    AppContext as _, AssetSource, Bounds, Result, SharedString, TitlebarOptions, WindowBounds,
+    AppContext as _, AssetSource, Bounds, KeyBinding, Result, SharedString, TitlebarOptions,
+    WindowBounds,
     WindowOptions, point, px, size,
 };
 use std::borrow::Cow;
@@ -93,6 +94,23 @@ fn main() {
             // Component layers must exist before any themed view.
             gpui_kit::init(cx);
             theme::install(cx);
+
+            // Global keyboard navigation (shell.rs holds the handlers).
+            // Register keeps F1 and the pay F2; the rest hold the web
+            // app's muscle memory where the screen survived the split.
+            cx.bind_keys([
+                KeyBinding::new("f1", crate::shell::GoRegister, None),
+                KeyBinding::new("f2", crate::shell::PayCurrent, None),
+                KeyBinding::new("f5", crate::shell::GoTraining, None),
+                KeyBinding::new("f6", crate::shell::GoReports, None),
+                KeyBinding::new("f7", crate::shell::GoShift, None),
+                KeyBinding::new("f8", crate::shell::GoInventory, None),
+                KeyBinding::new("f9", crate::shell::GoCustomers, None),
+                KeyBinding::new("f10", crate::shell::GoKnowledge, None),
+                KeyBinding::new("f11", crate::shell::GoSettings, None),
+                KeyBinding::new("alt-]", crate::shell::NextScreen, None),
+                KeyBinding::new("alt-[", crate::shell::PrevScreen, None),
+            ]);
 
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {

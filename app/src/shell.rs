@@ -13,15 +13,32 @@ use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Root, Sizable as _};
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
-    div, px,
+    actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Window, div, px,
 };
 
 use crate::screens::{
     CustomersScreen, InventoryScreen, KnowledgeScreen, RegisterScreen, ReportsScreen,
     SettingsScreen, ShiftScreen, TrainingScreen,
 };
+
+actions!(
+    kaseer,
+    [
+        GoRegister,
+        GoShift,
+        GoInventory,
+        GoCustomers,
+        GoReports,
+        GoSettings,
+        GoTraining,
+        GoKnowledge,
+        NextScreen,
+        PrevScreen,
+        PayCurrent,
+    ]
+);
 
 /// One navigation entry: the shell's screen identity. Dashboard,
 /// Campaigns, and Copilot moved to the web companion and are deleted
@@ -79,6 +96,22 @@ impl NavItem {
             NavItem::Knowledge => IconName::BookOpen,
         }
     }
+
+    /// Global function-key shortcut. The register keeps the terminal's
+    /// F1; the rest hold the web app's muscle memory where the screen
+    /// survived the web-companion split.
+    fn fkey(self) -> &'static str {
+        match self {
+            NavItem::Register => "F1",
+            NavItem::Training => "F5",
+            NavItem::Reports => "F6",
+            NavItem::Shift => "F7",
+            NavItem::Inventory => "F8",
+            NavItem::Customers => "F9",
+            NavItem::Knowledge => "F10",
+            NavItem::Settings => "F11",
+        }
+    }
 }
 
 /// One slot per screen; `None` until first visit.
@@ -112,13 +145,20 @@ impl ScreenSlots {
 pub struct AppShell {
     active: NavItem,
     screens: ScreenSlots,
+    /// Keyboard home: focused once at startup so the shell's action
+    /// handlers receive F-key dispatch from anywhere (text inputs bubble
+    /// unhandled keys up the focus path to here).
+    focus: FocusHandle,
 }
 
 impl AppShell {
-    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
         Self {
             active: NavItem::Register,
             screens: ScreenSlots::empty(),
+            focus,
         }
     }
 
@@ -230,6 +270,12 @@ impl AppShell {
                     }))
                     .child(Icon::new(item.icon()).with_size(px(17.)).text_color(fg))
                     .child(div().text_size(px(10.5)).child(item.label()))
+                    .child(
+                        div()
+                            .text_size(px(8.5))
+                            .opacity(if selected { 0.75 } else { 0.45 })
+                            .child(item.fkey()),
+                    )
             }))
     }
 
@@ -247,6 +293,17 @@ impl AppShell {
             cx.notify();
         }
     }
+
+    /// Alt+] / Alt+[ walk the rail in order, wrapping at the ends.
+    fn cycle(&mut self, dir: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let count = NAV_ITEMS.len() as isize;
+        let current = NAV_ITEMS
+            .iter()
+            .position(|item| *item == self.active)
+            .unwrap_or(0) as isize;
+        let next = NAV_ITEMS[((current + dir).rem_euclid(count)) as usize];
+        self.navigate(next, window, cx);
+    }
 }
 
 impl Render for AppShell {
@@ -256,6 +313,26 @@ impl Render for AppShell {
             .id("app-shell")
             .size_full()
             .items_stretch()
+            .track_focus(&self.focus)
+            // Global keyboard navigation. Text inputs only see keys they
+            // handle; everything else bubbles up the focus path to here.
+            .on_action(cx.listener(|shell, _: &GoRegister, window, cx| shell.navigate(NavItem::Register, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoShift, window, cx| shell.navigate(NavItem::Shift, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoInventory, window, cx| shell.navigate(NavItem::Inventory, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoCustomers, window, cx| shell.navigate(NavItem::Customers, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoReports, window, cx| shell.navigate(NavItem::Reports, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoSettings, window, cx| shell.navigate(NavItem::Settings, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoTraining, window, cx| shell.navigate(NavItem::Training, window, cx)))
+            .on_action(cx.listener(|shell, _: &GoKnowledge, window, cx| shell.navigate(NavItem::Knowledge, window, cx)))
+            .on_action(cx.listener(|shell, _: &NextScreen, window, cx| shell.cycle(1, window, cx)))
+            .on_action(cx.listener(|shell, _: &PrevScreen, window, cx| shell.cycle(-1, window, cx)))
+            .on_action(cx.listener(|shell, _: &PayCurrent, window, cx| {
+                if shell.active == NavItem::Register
+                    && let Some(register) = shell.screens.register.as_ref()
+                {
+                    register.update(cx, |r, cx| r.open_pay(window, cx));
+                }
+            }))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_nav(cx))
