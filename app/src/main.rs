@@ -51,7 +51,7 @@ impl AssetSource for AppAssets {
 
 /// Field kiosks must leave crash traces: every panic appends timestamp,
 /// message, location, and a full backtrace to `<data dir>/crash.log`
-/// (best-effort — a broken data dir must not turn a panic into a
+/// (best-effort: a broken data dir must not turn a panic into a
 /// double fault).
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
@@ -155,7 +155,7 @@ fn main() {
                 .detach();
 
                 // Menu pull: the cloud (enrolled) or the companion owns the
-                // catalog — poll its revision now and on the source's tick
+                // catalog: poll its revision now and on the source's tick
                 // (see menu_sync).
                 menu_sync::spawn_menu_poll(cx.background_executor().clone());
 

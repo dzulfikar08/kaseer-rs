@@ -33,7 +33,7 @@ const DAY_OPTIONS: [i64; 3] = [7, 30, 90];
 const TOP_PRODUCT_LIMIT: usize = 8;
 
 /// Chart geometry: the tallest bar and the plot area holding it, in px.
-/// Fixed pixel geometry on purpose — the plot is a measured surface, like
+/// Fixed pixel geometry on purpose: the plot is a measured surface, like
 /// the web screen's 140/180px chart, not a rem-based control.
 const BAR_MAX_HEIGHT: f32 = 140.;
 const CHART_HEIGHT: f32 = 180.;
@@ -267,7 +267,7 @@ impl ReportsScreen {
         let max_day = d.by_day.iter().map(|b| b.total_minor).max().unwrap_or(0);
         let panel = self
             .panel(cx)
-            .child(self.section_title(cx, &format!("Daily revenue — last {} days", self.days)))
+            .child(self.section_title(cx, &format!("Daily revenue: last {} days", self.days)))
             .when(max_day > 0, |col| {
                 col.child(
                     div()

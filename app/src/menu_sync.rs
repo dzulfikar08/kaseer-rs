@@ -7,7 +7,7 @@
 //! payload is applied transactionally by [`kaseer_core::menu`] and the
 //! source's photo files are downloaded into the ledger's images/
 //! directory, best-effort per file. Pull failures are logged to the
-//! outbox's meta table (and stderr) — never a toast, and the register
+//! outbox's meta table (and stderr): never a toast, and the register
 //! keeps selling off its cached catalog.
 //!
 //! Knowledge convergence: when the Knowledge screen saves, the app also
@@ -71,7 +71,7 @@ fn companion_url(outbox: Option<&Outbox>) -> String {
 }
 
 /// Where the menu comes from. Enrollment moves the terminal to the cloud
-/// for good — the companion stays available only below that line.
+/// for good: the companion stays available only below that line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuSource {
     /// Enrolled: the cloud worker, addressed with the device token.
@@ -237,9 +237,9 @@ fn run_poll(
             .map_err(|e| e.to_string())?;
         outbox.meta_delete(KEY_ERROR).map_err(|e| e.to_string())?;
         Ok(match fetched {
-            0 => format!("Menu rev {} — {} products", apply.rev, apply.products),
+            0 => format!("Menu rev {}: {} products", apply.rev, apply.products),
             n => format!(
-                "Menu rev {} — {} products, {n} photos",
+                "Menu rev {}: {} products, {n} photos",
                 apply.rev, apply.products
             ),
         })
@@ -333,7 +333,7 @@ pub fn pull_now() -> String {
     }
 }
 
-/// The forever loop: poll at boot, then every [`poll_interval`] — 10s
+/// The forever loop: poll at boot, then every [`poll_interval`]: 10s
 /// enrolled, 30s on the companion. Runs on the background executor for
 /// the process's lifetime; the interval re-reads enrollment each tick so
 /// enrolling takes effect without a restart.
@@ -403,7 +403,7 @@ mod tests {
     }
 
     impl FakeCompanion {
-        /// Serves one product addressed by `product_id` — the shared-ledger
+        /// Serves one product addressed by `product_id`: the shared-ledger
         /// model, where the companion serves the very rows the kiosk reads.
         /// Both endpoints always report the same, current revision.
         fn new(rev: u64, product_id: &str, image_file: &str) -> Self {
@@ -537,7 +537,7 @@ mod tests {
     /// each other's try_lock; serialize the tests instead.
     static SERIAL: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
-    /// The seeded americano's id — the payload must address the very row
+    /// The seeded americano's id: the payload must address the very row
     /// the kiosk already has (companion and kiosk share one ledger file).
     fn seeded_americano_id(ledger_path: &str) -> String {
         open_repo(ledger_path)
@@ -558,7 +558,7 @@ mod tests {
 
         // First poll: nothing stored yet, so the full menu applies.
         let summary = run_poll(&companion, &ledger, &outbox_path, false).unwrap();
-        assert_eq!(summary, "Menu rev 4 — 1 products, 1 photos");
+        assert_eq!(summary, "Menu rev 4: 1 products, 1 photos");
         assert_eq!(companion.pulls.load(Ordering::Acquire), 1);
         assert_eq!(applied_revision(), 4);
 
@@ -597,14 +597,14 @@ mod tests {
         std::fs::remove_file(&photo).unwrap();
         drop(repo);
         let summary = run_poll(&companion, &ledger, &outbox_path, true).unwrap();
-        assert_eq!(summary, "Menu rev 4 — 1 products, 1 photos");
+        assert_eq!(summary, "Menu rev 4: 1 products, 1 photos");
         let photo = menu::local_image_path(&ledger, "images/americano-01.jpg").unwrap();
         assert!(photo.exists());
 
         // A moved revision repulls even from an unchanged payload.
         companion.rev.store(5, Ordering::Release);
         let summary = run_poll(&companion, &ledger, &outbox_path, false).unwrap();
-        assert_eq!(summary, "Menu rev 5 — 1 products");
+        assert_eq!(summary, "Menu rev 5: 1 products");
         assert_eq!(companion.pulls.load(Ordering::Acquire), 3);
     }
 
@@ -650,7 +650,7 @@ mod tests {
 
         let cloud = FakeCloud::new(7, &americano_id);
         let summary = run_poll(&cloud, &ledger, &outbox_path, false).unwrap();
-        assert_eq!(summary, "Menu rev 7 — 1 products, 1 photos");
+        assert_eq!(summary, "Menu rev 7: 1 products, 1 photos");
 
         let requests = cloud.requests.lock().clone();
         assert!(

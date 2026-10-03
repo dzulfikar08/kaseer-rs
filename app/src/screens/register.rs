@@ -229,7 +229,7 @@ impl RegisterScreen {
     /// Menu pull watch: the pull engine writes the ledger on a background
     /// thread and records the applied revision in a process global. The
     /// tick itself is deliberately trivial (a field write + notify, the
-    /// same shape as Settings' refresh loop) — an async entity update must
+    /// same shape as Settings' refresh loop): an async entity update must
     /// never run ledger I/O or heavy work, or its flushed frame can
     /// re-enter Root mid-update. The snapshot reload happens in
     /// [`Self::consume_pending_menu_revision`] at the top of this view's
@@ -261,7 +261,7 @@ impl RegisterScreen {
 
     /// Called at the top of `render`: reload the catalog snapshot when the
     /// watcher parked a menu revision. Runs inside this view's own render
-    /// pass — one owner, one thread, no re-entrant entity updates. A failed
+    /// pass: one owner, one thread, no re-entrant entity updates. A failed
     /// read keeps the previous snapshot.
     fn consume_pending_menu_revision(&mut self) {
         let Some(rev) = self.pending_menu_rev.take() else {
@@ -553,7 +553,7 @@ impl RegisterScreen {
             .flex_grow(1.6)
             .min_w_0()
             .gap_2()
-            // The input's editor renders size_full — placed bare in a flex
+            // The input's editor renders size_full: placed bare in a flex
             // column it would take the whole column height and starve the
             // grid. The fixed-height wrapper pins it to one line.
             .child(
@@ -722,7 +722,7 @@ impl RegisterScreen {
         if known {
             // The web `.kinfo`: a small corner button floating over the
             // card's top-right, opening a click-away knowledge popover.
-            // The position lives on a wrapper div — the Popover styles its
+            // The position lives on a wrapper div: the Popover styles its
             // content surface, not the trigger.
             div()
                 .relative()
@@ -742,7 +742,7 @@ impl RegisterScreen {
 
     /// The knowledge affordance: an Info corner button floating over the
     /// card's top-right (the web `.kinfo` position), opening a click-away
-    /// knowledge popover — the register.tsx `openPeek` flow on gpui-kit's
+    /// knowledge popover: the register.tsx `openPeek` flow on gpui-kit's
     /// Popover.
     fn render_knowledge_popover(&self, product: &Product, cx: &Context<Self>) -> impl IntoElement {
         let product = product.clone();
@@ -787,7 +787,7 @@ impl RegisterScreen {
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(format!(
-                            "{} — {} pts",
+                            "{}: {} pts",
                             customer.name, customer.points
                         ))),
                 )
@@ -816,7 +816,7 @@ impl RegisterScreen {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
-                        "CURRENT SALE — {} ITEMS",
+                        "CURRENT SALE: {} ITEMS",
                         self.cart.lines.len()
                     ))),
             )
@@ -1044,7 +1044,7 @@ impl RegisterScreen {
     fn render_pay_button(&self, cx: &Context<Self>, totals: &CartTotals) -> impl IntoElement {
         let payable = !self.cart.lines.is_empty() && self.active_shift.is_some();
         let label = match &self.active_shift {
-            Some(_) => format!("Pay — {}", fmt_money(totals.total_minor, self.currency)),
+            Some(_) => format!("Pay: {}", fmt_money(totals.total_minor, self.currency)),
             None => "Open a shift to sell".to_string(),
         };
         // The kit's disabled primary drops to 15% opacity, which reads as a
@@ -1456,7 +1456,7 @@ impl PayDialog {
         let id = if key == "⌫" { "num-back" } else { "num-key" };
         Button::new(SharedString::from(format!("{id}-{key}")))
             .secondary()
-            // Web `.numgrid button`: 14px padding, 16px text — a ~48px key.
+            // Web `.numgrid button`: 14px padding, 16px text: a ~48px key.
             .h(px(48.))
             .w(px(64.))
             .label(key)
@@ -1586,7 +1586,7 @@ impl ReceiptDialog {
         self.sale = None;
     }
 
-    /// The shown sale, if any — the training screen re-opens the paper for
+    /// The shown sale, if any: the training screen re-opens the paper for
     /// its receipt lesson.
     pub(crate) fn sale(&self) -> Option<Sale> {
         self.sale.clone()
@@ -1807,7 +1807,7 @@ pub(crate) fn customer_items(customers: &[Customer]) -> Vec<CustomerItem> {
 // ── Small helpers ─────────────────────────────────────────────────────────
 
 /// A product carries knowledge when any of the read-only peek fields is
-/// filled — the web `hasKnowledge` contract decides the corner affordance.
+/// filled: the web `hasKnowledge` contract decides the corner affordance.
 pub(crate) fn has_knowledge(product: &Product) -> bool {
     !product.description.is_empty()
         || !product.prep_notes.is_empty()

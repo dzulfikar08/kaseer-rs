@@ -5,7 +5,7 @@
 //! screen, constructed lazily on first visit and retained for the window's
 //! lifetime (a screen's ledger connection, inputs, and subscriptions must
 //! survive navigation). Overlay mounting lives here, exactly once per
-//! window — gpui-kit 0.6.6's `Root::render` does not mount the dialog,
+//! window: gpui-kit 0.6.6's `Root::render` does not mount the dialog,
 //! sheet, and notification layers, and duplicate mounts would paint every
 //! dialog twice.
 
@@ -58,7 +58,7 @@ enum NavItem {
 }
 
 /// Rail order after the web-companion split. Training and Knowledge are
-/// the two slots that used to sit reserved at the bottom — now real
+/// the two slots that used to sit reserved at the bottom: now real
 /// screens, so the rail renders every entry the same way.
 const NAV_ITEMS: &[NavItem] = &[
     NavItem::Register,
@@ -222,7 +222,7 @@ impl AppShell {
         let active = self.active;
         // The web `.rail`: a 76px strip, items 64px wide with the icon
         // stacked over a 10.5px label; the active item sits on surface-2 in
-        // accent. No brand block — the web rail starts straight in.
+        // accent. No brand block: the web rail starts straight in.
         v_flex()
             .id("nav-rail")
             .w(px(76.))

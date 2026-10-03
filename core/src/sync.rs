@@ -6,7 +6,7 @@
 //!
 //! Enqueue is polling-primary by design: every drain re-reads the ledger
 //! (`sales_between` from the last watermark, plus the full product and
-//! customer catalog — which makes the first successful drain the
+//! customer catalog, which makes the first successful drain the
 //! bootstrap push) instead of hooking checkout, so a settled sale is
 //! queued no matter which code path wrote it. Rows dedupe on
 //! `(kind, ref)`; a changed payload re-activates a done row so catalog
@@ -542,17 +542,17 @@ impl DrainOutcome {
     /// One-line status for the UI.
     pub fn summary(&self) -> String {
         if self.backed_off {
-            return format!("Backing off — {} pending, retry later", self.remaining);
+            return format!("Backing off: {} pending, retry later", self.remaining);
         }
         if let Some(error) = &self.http_error {
-            return format!("Cloud unreachable — {error}");
+            return format!("Cloud unreachable: {error}");
         }
         let mut text = format!(
             "{} accepted, {} duplicates",
             self.accepted, self.duplicates
         );
         if !self.row_errors.is_empty() {
-            text.push_str(&format!(" — {} row(s) rejected", self.row_errors.len()));
+            text.push_str(&format!(": {} row(s) rejected", self.row_errors.len()));
         }
         if self.remaining > 0 {
             text.push_str(&format!(", {} still pending", self.remaining));

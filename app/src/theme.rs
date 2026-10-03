@@ -4,12 +4,12 @@
 //! read semantic roles from `cx.theme()`, never literals (Design Guides,
 //! "Color and themes").
 //!
-//! Canvas mapping (pencil-new.pen, 2026-09-29 — the blue redesign board):
+//! Canvas mapping (pencil-new.pen, 2026-09-29, the blue redesign board):
 //! - Midnight canvas `#0A0A0F`, rail `#0F1526`, surfaces `#17233B`
 //!   `#1F2C48`, hover `#26355A`
 //! - borders translucent white `#ffffff14` / `#ffffff26`
 //! - text `#F1F5F9`, dim `#94A3B8`, faint `#64748B`
-//! - single Electric Blue accent `#3B82F6` (dim `#2563EB` — focus ring),
+//! - single Electric Blue accent `#3B82F6` (dim `#2563EB`: focus ring),
 //!   white foreground on accent
 //! - states: danger `#F87171`, ok emerald `#10B981`
 //! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
@@ -42,7 +42,7 @@ const ON_ACCENT: &str = "#ffffff";
 /// system; a family set explicitly on the theme is used as-is.
 pub const FONT_SANS: &str = "IBM Plex Sans";
 
-/// Money, key caps, and tabular readouts — the canvas `font-mono`.
+/// Money, key caps, and tabular readouts: the canvas `font-mono`.
 pub const FONT_MONO: &str = "IBM Plex Mono";
 
 /// The web `.receipt`: white paper, near-black ink. Functions because
@@ -133,7 +133,7 @@ pub fn install(cx: &mut App) {
         // `apply_config` only falls back `button_primary` → `primary` while
         // loading a theme config; recoloring the role afterwards does not
         // revisit it. Button reads `tokens.button_primary`, which is copied
-        // from this role below — leave it unset and the default dark
+        // from this role below: leave it unset and the default dark
         // palette's near-white survives into the Pay button.
         theme.button_primary = token(ACCENT);
         theme.button_primary_foreground = token(ON_ACCENT);

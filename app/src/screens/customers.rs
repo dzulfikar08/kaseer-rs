@@ -297,7 +297,7 @@ impl CustomersScreen {
                     .flex_wrap()
                     .gap_2()
                     .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
-                        SharedString::from(format!("Customers — {}", filtered.len())),
+                        SharedString::from(format!("Customers: {}", filtered.len())),
                     ))
                     .child(
                         h_flex()
@@ -436,7 +436,7 @@ impl CustomersScreen {
     }
 }
 
-/// The UTC calendar day of an RFC 3339 stamp — the web's
+/// The UTC calendar day of an RFC 3339 stamp: the web's
 /// `createdAt.toLocaleDateString()` display contract.
 fn created_day(created_at: &str) -> String {
     created_at.get(..10).unwrap_or(created_at).to_string()

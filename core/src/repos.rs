@@ -40,7 +40,7 @@ pub type Result<T, E = RepoError> = std::result::Result<T, E>;
 pub struct StoreConfig {
     /// Customer is 'lost' after this many days without a purchase (Phase 2 definition).
     /// The companion stores this file camelCase (`lostAfterDays`, plus its
-    /// own `menuRev` — ignored here); the alias keeps old kiosk-written
+    /// own `menuRev`: ignored here); the alias keeps old kiosk-written
     /// snake_case ledgers readable.
     #[serde(default = "default_lost_after_days", alias = "lost_after_days")]
     pub lost_after_days: i64,

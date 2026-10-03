@@ -169,7 +169,7 @@ impl InventoryScreen {
             let ok_screen = screen.clone();
             let ok_pid = product_id.clone();
             let ok_name = product_name.clone();
-            let title = SharedString::from(format!("Adjust stock — {product_name}"));
+            let title = SharedString::from(format!("Adjust stock: {product_name}"));
             dialog
                 .title(title)
                 .bg(surface)

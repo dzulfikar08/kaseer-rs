@@ -2,7 +2,7 @@
 //! auto-update. Enrollment is first-boot: with no device identity in the
 //! outbox's meta table, the Settings screen collects a 6-digit pairing
 //! code (minted by the store owner on the cloud console) and exchanges it
-//! at the public `POST /api/kiosk/enroll` for a device token — shown
+//! at the public `POST /api/kiosk/enroll` for a device token: shown
 //! once, stored write-only, never rendered again. From then on the
 //! terminal is a first-class kiosk: the drain presents the device token
 //! (see `core::sync::drain`), the menu pulls from the cloud (see
@@ -11,8 +11,8 @@
 //! (sha256-verified auto-update at boot and every 6 hours).
 //!
 //! The update is deliberately boring: never mid-shift (a swap under an
-//! open till is deferred to the next boot or poll), never self-restarting
-//! — the cashier applies it on the next natural launch, and the Settings
+//! open till is deferred to the next boot or poll), never self-restarting;
+//! the cashier applies it on the next natural launch, and the Settings
 //! banner says so.
 
 use std::io::Read;
@@ -36,7 +36,7 @@ pub const DEFAULT_CLOUD_URL: &str = "https://kaseer-cloud.dzulfikar-at.workers.d
 /// Heartbeat cadence: the cloud's console freshness picture.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-/// Update poll cadence: at boot plus every 6 hours — a kiosk updates on
+/// Update poll cadence: at boot plus every 6 hours, a kiosk updates on
 /// its own schedule, not mid-shift.
 pub const UPDATE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
@@ -233,7 +233,7 @@ pub fn revoke() -> Result<(), String> {
 }
 
 /// One heartbeat: tells the cloud this kiosk lives (and its version), and
-/// stamps the Settings line. Best-effort by design — a failed beat is
+/// stamps the Settings line. Best-effort by design: a failed beat is
 /// retried on the next tick and surfaces nowhere but the timestamp.
 pub fn heartbeat() -> Result<(), String> {
     let outbox = Outbox::open(&sync::resolve_outbox_path()).map_err(|e| e.to_string())?;
@@ -291,7 +291,7 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 
 /// Where the downloaded release waits and where the running binary lives.
 struct UpdateTargets {
-    /// `./data/kaseer.new` — the contract's staging file, next to the
+    /// `./data/kaseer.new`: the contract's staging file, next to the
     /// ledger's data dir.
     staging: PathBuf,
     /// The running executable (`std::env::current_exe`).
@@ -314,7 +314,7 @@ fn update_targets() -> Result<UpdateTargets, String> {
 /// One update cycle: check the manifest, download and verify a newer
 /// release, atomically swap it over the running binary. Returns the
 /// installed version, or `None` when up to date / deferred (shift open).
-/// Never restarts the process — the swap lands on disk only.
+/// Never restarts the process: the swap lands on disk only.
 pub fn check_for_update() -> Result<Option<String>, String> {
     let outbox = Outbox::open(&sync::resolve_outbox_path()).map_err(|e| e.to_string())?;
     let identity = KioskIdentity::from_outbox(&outbox).ok_or("Not enrolled")?;
@@ -457,7 +457,7 @@ pub fn install_toast_pump(window: &Window, cx: &App) {
 
 fn run_update_check() {
     match check_for_update() {
-        Ok(Some(version)) => queue_toast(format!("Update {version} installed — restart to apply")),
+        Ok(Some(version)) => queue_toast(format!("Update {version} installed: restart to apply")),
         Ok(None) => {}
         Err(error) => eprintln!("[kiosk] update check failed: {error}"),
     }
@@ -467,7 +467,7 @@ fn run_update_check() {
 /// heartbeat and boot update check, then heartbeats every
 /// [`HEARTBEAT_INTERVAL`] and update checks every [`UPDATE_INTERVAL`].
 /// Everything inside skips itself while the terminal is not enrolled,
-/// and nothing here touches the UI — results travel through the outbox
+/// and nothing here touches the UI: results travel through the outbox
 /// meta table and the toast queue.
 pub async fn kiosk_loop(cx: &mut AsyncApp) {
     let bg = cx.background_executor().clone();

@@ -69,7 +69,7 @@ impl KnowledgeScreen {
             InputState::new(window, cx).placeholder("How is it prepared? (station, timing, …)")
         });
         let allergens = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("e.g. gluten, milk, soy — 'none' if free")
+            InputState::new(window, cx).placeholder("e.g. gluten, milk, soy: 'none' if free")
         });
 
         let mut screen = Self {
@@ -98,7 +98,7 @@ impl KnowledgeScreen {
         screen
     }
 
-    /// Products matching the live search box, name-or-SKU substring — the
+    /// Products matching the live search box, name-or-SKU substring: the
     /// same filter contract as `Repo::products`.
     fn filtered(&self, cx: &Context<Self>) -> Vec<Product> {
         let q = self.query.read(cx).value().trim().to_lowercase();
@@ -308,7 +308,7 @@ impl KnowledgeScreen {
                                     .text_size(px(11.))
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(format!(
-                                        "{} — {}",
+                                        "{}: {}",
                                         product.sku, product.category
                                     ))),
                             ),

@@ -47,7 +47,7 @@ pub struct ShiftScreen {
     _subscriptions: Vec<Subscription>,
 }
 
-/// Everything the live panel shows, reduced once per refresh — never queried
+/// Everything the live panel shows, reduced once per refresh: never queried
 /// during render.
 struct ActiveShiftSummary {
     shift: Shift,
@@ -122,7 +122,7 @@ impl ShiftScreen {
         repo_guard(&self.repo)
             .close_shift(&shift_id, counted_minor)
             .map_err(|e| e.to_string())?;
-        // Cloud sync: the shift's sales are final — push them now
+        // Cloud sync: the shift's sales are final: push them now
         // (fire-and-forget; the outbox keeps them if the cloud is down).
         crate::sync_client::spawn_background_drain(cx);
         self.reload(cx)?;
@@ -467,7 +467,7 @@ impl ShiftScreen {
             let ok_view = view.clone();
             let ok_screen = screen.clone();
             dialog
-                .title("Close shift — count the drawer")
+                .title("Close shift: count the drawer")
                 .w(px(560.))
                 .bg(surface)
                 .child(view.clone())
@@ -513,7 +513,7 @@ impl CloseShiftDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        // Banknote set from the currency registry, largest first — the same
+        // Banknote set from the currency registry, largest first: the same
         // denominations the drawer physically holds.
         let mut notes: Vec<i64> = cur.cash_notes.to_vec();
         notes.sort_unstable_by(|a, b| b.cmp(a));

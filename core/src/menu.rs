@@ -3,7 +3,7 @@
 //! the revision moves, re-pulls `/api/menu` and transactionally upserts
 //! every product (price, knowledge, archive flag, photo path), the tax
 //! rates, and the category list. Photo files themselves are downloaded
-//! separately into the ledger's images/ directory — best-effort, one file
+//! separately into the ledger's images/ directory: best-effort, one file
 //! at a time; a failed download keeps the `image_path` but leaves no local
 //! file, so the register card falls back to its text-only look and the
 //! file is retried on the next pull.
@@ -12,7 +12,7 @@
 //! the app fires a `PATCH /api/products/:id/knowledge` at the companion
 //! (see `app/src/menu_sync.rs`). The PATCH bumps the companion's menu
 //! revision, the next poll re-pulls, and both sides converge on the same
-//! copy — the pull can never silently clobber a kiosk-side edit that
+//! copy: the pull can never silently clobber a kiosk-side edit that
 //! reached the companion.
 //!
 //! The wire shapes here mirror the companion's row mappers exactly
@@ -53,7 +53,7 @@ pub struct MenuTaxRate {
     pub inclusive: bool,
 }
 
-/// Companion product on the wire — the camelCase of `repos::Product`.
+/// Companion product on the wire: the camelCase of `repos::Product`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MenuProduct {
@@ -91,7 +91,7 @@ pub fn parse_menu(bytes: &[u8]) -> Result<MenuPayload, String> {
 
 /// The `<file>` half of a repo-relative `images/<file>` path, rejected
 /// unless it is the same flat `[A-Za-z0-9._-]+` name the companion
-/// sanitizes uploads to — this string is joined onto the images dir, so
+/// sanitizes uploads to: this string is joined onto the images dir, so
 /// traversal-shaped values must never survive.
 pub fn image_file_of(image_path: &str) -> Option<String> {
     let file = image_path.strip_prefix("images/")?;
@@ -128,7 +128,7 @@ pub fn local_image_path(db_path: &str, image_path: &str) -> Option<PathBuf> {
 /// Transactionally converge the ledger on one menu payload: upsert every
 /// tax rate, then every product (including archived), then replace the
 /// category list (companion order wins; categories carry no references).
-/// Products absent from the payload are left alone — the companion owns
+/// Products absent from the payload are left alone: the companion owns
 /// catalog edits, deletion goes through its archive flag.
 ///
 /// Returns which photo files changed (or are simply missing locally) so
@@ -139,7 +139,7 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
 
     // Senders may leave two rows sharing one UNIQUE sku (a Menu-UI save
     // keys by id, so the duplicate is invisible there). Dedupe by sku,
-    // last-wins — the newer edit is the sender's intent — or the second
+    // last-wins (the newer edit is the sender's intent), or the second
     // row would abort the whole pull with a constraint error.
     let mut seen_skus = std::collections::HashSet::new();
     let mut products = Vec::with_capacity(payload.products.len());
@@ -172,7 +172,7 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
 
     let tx = conn.unchecked_transaction()?;
     // The transaction lives on the same connection, so every repo statement
-    // below joins it — commit (or drop) covers the whole pull.
+    // below joins it: commit (or drop) covers the whole pull.
     for rate in &payload.tax_rates {
         repo.upsert_tax_rate(&crate::tax::TaxRate {
             id: rate.id.clone(),

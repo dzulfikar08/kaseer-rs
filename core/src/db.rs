@@ -187,7 +187,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         // Phase 3 (web companion): product knowledge for the register
         // popover and inventory editor, plus kitchen tickets derived when
         // a sale settles with kitchen-routed lines. Kept verbatim against
-        // kaseer-web's migrate() — both apps open the same ledger file.
+        // kaseer-web's migrate(): both apps open the same ledger file.
         conn.execute_batch(
             "ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT '';
              ALTER TABLE products ADD COLUMN prep_notes TEXT NOT NULL DEFAULT '';
@@ -219,7 +219,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if version < 4 {
         let tx = conn.unchecked_transaction()?;
         // Phase 4 (menu pull): register card photos. The ALTER is ported
-        // verbatim from kaseer-web's v4 — both apps open the same ledger
+        // verbatim from kaseer-web's v4: both apps open the same ledger
         // file. The web's step also backfills stock photos from its own
         // data dir; the terminal skips that on purpose: photos arrive over
         // the wire via the menu pull, which downloads the companion's
@@ -298,7 +298,7 @@ fn seed_knowledge(conn: &Connection) -> rusqlite::Result<()> {
 /// Copy `source` into a fresh `target` file. The training sandbox starts
 /// from a copy of the live ledger; `VACUUM INTO` reads through WAL and
 /// writes a consistent snapshot, so the copy stays valid even while the
-/// register holds the source open. `target` must not exist — callers
+/// register holds the source open. `target` must not exist: callers
 /// remove stale copies (and their `-wal`/`-shm` sidecars) first.
 pub fn snapshot_db(source: &str, target: &str) -> rusqlite::Result<()> {
     let src = Connection::open(source)?;

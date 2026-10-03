@@ -1,7 +1,7 @@
 //! Training mode: an 8-lesson guided tour of the register flow on a
 //! sandbox ledger. "Start training" copies the live ledger (or seeds a
-//! fresh one) to `training.db` next to it; every lesson action — shift,
-//! cart, payment, receipt, close — lands in that copy, so a trainee's
+//! fresh one) to `training.db` next to it; every lesson action, shift,
+//! cart, payment, receipt, close, lands in that copy, so a trainee's
 //! sales never touch the real ledger. Lesson progress persists in the
 //! sandbox's settings `config_json`, and validation reads the sandbox
 //! through the same repo seams the real screens use
@@ -74,7 +74,7 @@ const LESSONS: [(u8, &str, &str); 8] = [
     (
         5,
         "Give an order discount",
-        "Type 10 into the percent box and press Apply % — 10% off the whole order.",
+        "Type 10 into the percent box and press Apply %: 10% off the whole order.",
     ),
     (
         6,
@@ -84,7 +84,7 @@ const LESSONS: [(u8, &str, &str); 8] = [
     (
         7,
         "Read the receipt",
-        "The receipt is on screen. Read it — lines, change, shift — then press New sale to close it.",
+        "The receipt is on screen. Read it (lines, change, shift), then press New sale to close it.",
     ),
     (
         8,
@@ -198,7 +198,7 @@ impl TrainingScreen {
     // ── Session lifecycle ─────────────────────────────────────────────────
 
     /// Copy the live ledger into the sandbox (or seed a fresh one) and open
-    /// it. A stale sandbox is removed first — `VACUUM INTO` needs an
+    /// it. A stale sandbox is removed first: `VACUUM INTO` needs an
     /// absent target, and Reset means a fresh ledger.
     fn start_training(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match Session::start() {
@@ -378,7 +378,7 @@ impl TrainingScreen {
         let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
             dialog
-                .title("Payment — training sandbox")
+                .title("Payment: training sandbox")
                 .w(px(640.))
                 .bg(surface)
                 .child(pay.clone())
@@ -575,7 +575,7 @@ impl TrainingScreen {
             let ok_view = view.clone();
             let ok_screen = screen.clone();
             dialog
-                .title("Close shift — count the drawer (training)")
+                .title("Close shift: count the drawer (training)")
                 .w(px(560.))
                 .bg(surface)
                 .child(view.clone())
@@ -713,7 +713,7 @@ impl Session {
     }
 
     /// Completed lesson numbers, read back from the sandbox's settings
-    /// `config_json` — the same blob the web companion keeps its store
+    /// `config_json`: the same blob the web companion keeps its store
     /// config in; training parks its progress under a `training` key the
     /// companion ignores.
     fn progress(&self) -> Vec<u8> {
@@ -853,7 +853,7 @@ fn last_closed_shift(repo: &Repo) -> Option<Shift> {
 }
 
 /// The live predicate for one lesson. Everything reads the sandbox ledger
-/// or the session cart — never screen-only state that could lie.
+/// or the session cart: never screen-only state that could lie.
 fn lesson_complete(number: u8, session: &Session, state: &LessonState) -> bool {
     match number {
         1 => state
@@ -944,7 +944,7 @@ impl TrainingScreen {
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(format!(
                                 "Copies the live ledger to {} and runs {} guided lessons against \
-                                 the copy — trainee sales never touch the real ledger.",
+                                 the copy: trainee sales never touch the real ledger.",
                                 sandbox_display_path(),
                                 LESSONS.len(),
                             ))),
@@ -999,7 +999,7 @@ impl TrainingScreen {
                             .text_size(px(12.5))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().accent)
-                            .child("TRAINING — sandbox ledger"),
+                            .child("TRAINING: sandbox ledger"),
                     )
                     .child(
                         div()
@@ -1042,7 +1042,7 @@ impl TrainingScreen {
                                         .text_base()
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(cx.theme().success)
-                                        .child("Training complete — 8/8"),
+                                        .child("Training complete: 8/8"),
                                 ),
                         )
                         .child(
@@ -1086,7 +1086,7 @@ impl TrainingScreen {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(format!(
-                                "PROGRESS — {} OF {} LESSONS",
+                                "PROGRESS: {} OF {} LESSONS",
                                 completed,
                                 LESSONS.len()
                             ))),
@@ -1331,7 +1331,7 @@ impl TrainingScreen {
         }
     }
 
-    /// The cart panel — the register's right column, wired to the sandbox.
+    /// The cart panel: the register's right column, wired to the sandbox.
     fn render_cart_column(&self, cx: &Context<Self>) -> impl IntoElement {
         let Some(session) = &self.session else {
             return div().into_any_element();
@@ -1357,7 +1357,7 @@ impl TrainingScreen {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
-                        "SANDBOX SALE — {} ITEMS",
+                        "SANDBOX SALE: {} ITEMS",
                         session.cart.lines.len()
                     ))),
             )
@@ -1367,7 +1367,7 @@ impl TrainingScreen {
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(format!(
-                            "{} — {} pts",
+                            "{}: {} pts",
                             customer.name, customer.points
                         ))),
                 )
@@ -1382,7 +1382,7 @@ impl TrainingScreen {
                     .label(SharedString::from(
                         match session.repo.active_shift().ok().flatten() {
                             Some(_) => {
-                                format!("Pay — {}", fmt_money(totals.total_minor, session.cur))
+                                format!("Pay: {}", fmt_money(totals.total_minor, session.cur))
                             }
                             None => "Open a shift to sell".to_string(),
                         },

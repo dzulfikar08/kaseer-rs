@@ -404,7 +404,7 @@ impl SettingsScreen {
 
     /// Forced drain on the background executor: ignores the failure
     /// backoff window, flips the button into its in-flight state, and
-    /// reports through the status line — never a modal or toast.
+    /// reports through the status line: never a modal or toast.
     fn sync_now(&mut self, cx: &mut Context<Self>) {
         if self.sync_in_flight {
             return;
@@ -467,7 +467,7 @@ impl SettingsScreen {
 
     /// Manual menu pull on the background executor: ignores the revision
     /// gate, flips the button into its in-flight state, and reports through
-    /// the status line — never a modal or toast.
+    /// the status line: never a modal or toast.
     fn pull_menu_now(&mut self, cx: &mut Context<Self>) {
         if self.menu_in_flight {
             return;
@@ -532,7 +532,7 @@ impl SettingsScreen {
                     Ok(identity) => {
                         // The pairing code is one-shot and now dead; it is
                         // left in the field only as a receipt of what was
-                        // consumed — never stored anywhere.
+                        // consumed: never stored anywhere.
                         this.enroll_message = Some(format!("Enrolled as {}.", identity.name));
                     }
                     Err(error) => {
@@ -553,7 +553,7 @@ impl SettingsScreen {
         match crate::kiosk::revoke() {
             Ok(()) => {
                 self.enroll_message =
-                    Some("Kiosk revoked — this terminal is no longer enrolled.".to_string());
+                    Some("Kiosk revoked: this terminal is no longer enrolled.".to_string());
                 crate::menu_sync::poll_once();
             }
             Err(error) => self.enroll_message = Some(format!("Revoke failed: {error}")),
@@ -902,7 +902,7 @@ impl SettingsScreen {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
-                                "Percent — saved when a field loses focus",
+                                "Percent: saved when a field loses focus",
                             )),
                     ),
             )
@@ -910,7 +910,7 @@ impl SettingsScreen {
     }
 
     /// The cloud sync card: endpoint config, live outbox status, and the
-    /// manual drain. Offline failures land in the status line — the
+    /// manual drain. Offline failures land in the status line: the
     /// cashier's sale path never blocks on the cloud.
     fn render_sync_panel(&self, cx: &Context<Self>) -> impl IntoElement {
         let (pending, last_sync, last_error) = self.sync_status();
@@ -961,7 +961,7 @@ impl SettingsScreen {
                     div()
                         .text_sm()
                         .text_color(cx.theme().danger)
-                        .child("Sync database unavailable — sync disabled."),
+                        .child("Sync database unavailable: sync disabled."),
                 )
             })
             .child(
@@ -1181,7 +1181,7 @@ impl SettingsScreen {
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(SharedString::from(format!(
-                            "Update {version} installed — restart to apply."
+                            "Update {version} installed: restart to apply."
                         ))),
                 )
             })
