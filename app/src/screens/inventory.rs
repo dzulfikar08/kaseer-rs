@@ -17,7 +17,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     App, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, Window, div, px,
+    ParentElement as _, Pixels, Render, SharedString, Styled as _, Window, div, px,
 };
 use kaseer_core::currency::{Currency, currency_by_code};
 use kaseer_core::db::{open_repo, resolve_db_path};
@@ -253,6 +253,12 @@ fn currency_of(repo: &Repo) -> &'static Currency {
         .unwrap_or(CUR_FALLBACK)
 }
 
+/// Stock table column widths, shared by the header and every row.
+const COL_CATEGORY: Pixels = px(132.);
+const COL_NUMBER: Pixels = px(72.);
+const COL_STATUS: Pixels = px(76.);
+const COL_ACTION: Pixels = px(76.);
+
 fn money_str(minor: i64, cur: &Currency) -> String {
     money::format(&money::money(minor, cur.code), Some(cur)).unwrap_or_else(|_| minor.to_string())
 }
@@ -431,38 +437,26 @@ impl InventoryScreen {
     }
 
     fn render_table_header(&self, cx: &Context<Self>) -> impl IntoElement {
+        let head = |text: &str| {
+            div()
+                .text_size(px(11.))
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(text.to_uppercase()))
+        };
+        // Same widths as `render_product_row`, or the headings drift off
+        // their columns.
         h_flex()
             .gap_3()
             .px_3()
             .pb_2()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(self.header_cell(cx, "Product", false))
-            .child(self.header_cell(cx, "Category", false))
-            .child(self.header_cell(cx, "On hand", true))
-            .child(self.header_cell(cx, "Low at", true))
-            .child(
-                div().w_20().child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(cx.theme().muted_foreground)
-                        .child("STATUS"),
-                ),
-            )
-            .child(div().w_20())
-    }
-
-    fn header_cell(&self, cx: &Context<Self>, text: &str, right: bool) -> impl IntoElement {
-        let mut cell = div()
-            .text_size(px(11.))
-            .text_color(cx.theme().muted_foreground)
-            .child(SharedString::from(text.to_uppercase()));
-        if right {
-            cell = cell.w_20().text_right();
-        } else {
-            cell = cell.flex_1().min_w_0();
-        }
-        cell
+            .child(head("Product").flex_1().min_w_0())
+            .child(head("Category").w(COL_CATEGORY))
+            .child(head("On hand").w(COL_NUMBER).text_right())
+            .child(head("Low at").w(COL_NUMBER).text_right())
+            .child(head("Status").w(COL_STATUS).pl(px(12.)))
+            .child(div().w(COL_ACTION))
     }
 
     fn render_product_row(&self, cx: &Context<Self>, product: &Product) -> impl IntoElement {
@@ -470,11 +464,11 @@ impl InventoryScreen {
         let low = self.is_low(product);
         let pid = product.id.clone();
         let (status, status_color) = if on_hand <= 0 {
-            ("out", cx.theme().danger)
+            ("Out", cx.theme().danger)
         } else if low {
-            ("low", cx.theme().warning)
+            ("Low", cx.theme().warning)
         } else {
-            ("ok", cx.theme().muted_foreground)
+            ("OK", cx.theme().muted_foreground)
         };
 
         h_flex()
@@ -503,14 +497,14 @@ impl InventoryScreen {
             )
             .child(
                 div()
-                    .w_24()
+                    .w(COL_CATEGORY)
                     .text_sm()
                     .truncate()
                     .child(SharedString::from(product.category.clone())),
             )
             .child(
                 div()
-                    .w_20()
+                    .w(COL_NUMBER)
                     .text_right()
                     .text_sm()
                     .font_features(crate::theme::tabular())
@@ -518,7 +512,7 @@ impl InventoryScreen {
             )
             .child(
                 div()
-                    .w_20()
+                    .w(COL_NUMBER)
                     .text_right()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
@@ -526,14 +520,18 @@ impl InventoryScreen {
                     .child(SharedString::from(product.low_stock_at.to_string())),
             )
             .child(
+                // Inset so the left-aligned word does not read as a suffix
+                // of the right-aligned "Low at" number beside it.
                 div()
-                    .w_20()
+                    .w(COL_STATUS)
+                    .pl(px(12.))
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(status_color)
                     .child(SharedString::from(status)),
             )
             .child(
+                h_flex().w(COL_ACTION).justify_end().child(
                 Button::new(SharedString::from(format!("adjust-{}", product.id)))
                     .label("Adjust")
                     .outline()
@@ -548,6 +546,7 @@ impl InventoryScreen {
                             this.open_adjust_dialog(pid.clone(), name, window, cx);
                         }
                     })),
+                ),
             )
     }
 }

@@ -204,6 +204,8 @@ impl RegisterScreen {
     pub fn activate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.active_shift = self.repo.active_shift().unwrap_or_default();
         self.refresh_catalog(window, cx);
+        // Coming back to the register means scanning next, as on boot.
+        self.query.update(cx, |input, cx| input.focus(window, cx));
     }
 
     /// Consume the Customers screen's cross-screen handoff: its "Sell to"
@@ -620,13 +622,27 @@ impl RegisterScreen {
             .flex_grow(1.)
             .min_h_0()
             .overflow_y_scrollbar();
+        // Once any tile has a photo, photo-less tiles get a placeholder
+        // band so names and prices sit on the same line across a row.
+        let banded = products.iter().any(|product| self.photo_path(product).is_some());
         for product in products {
-            grid = grid.child(self.render_product_card(product, cx));
+            grid = grid.child(self.render_product_card(product, banded, cx));
         }
         grid.into_any_element()
     }
 
-    fn render_product_card(&self, product: &Product, cx: &Context<Self>) -> impl IntoElement {
+    /// The product's downloaded photo, if the pull has landed it on disk.
+    fn photo_path(&self, product: &Product) -> Option<PathBuf> {
+        menu::local_image_path(self.repo.db_path(), &product.image_path)
+            .filter(|path| path.exists())
+    }
+
+    fn render_product_card(
+        &self,
+        product: &Product,
+        banded: bool,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let stock_note = self
             .stock
             .get(&product.id)
@@ -635,8 +651,7 @@ impl RegisterScreen {
         // Photo band (the web `.band`): pulled from the companion into the
         // ledger's images/ dir. An empty path or a not-yet-downloaded file
         // keeps the text-only card until a later pull lands the file.
-        let photo = menu::local_image_path(self.repo.db_path(), &product.image_path)
-            .filter(|path| path.exists());
+        let photo = self.photo_path(product);
         let body = v_flex()
             .flex_grow(1.)
             .gap(px(4.))
@@ -708,15 +723,32 @@ impl RegisterScreen {
                     }
                 }
             }))
-            .when_some(photo, |card, path| {
-                card.child(
+            .map(|card| match photo {
+                Some(path) => card.child(
                     img(path)
                         .id(SharedString::from(format!("product-img-{}", product.id)))
                         .w_full()
                         .h(px(96.))
                         .flex_none()
                         .object_fit(ObjectFit::Cover),
-                )
+                ),
+                // No photo yet: the product's initials on the raised
+                // surface, an honest placeholder rather than a stock image.
+                None if banded => card.child(
+                    div()
+                        .w_full()
+                        .h(px(96.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(cx.theme().muted)
+                        .text_size(px(22.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(initials(&product.name))),
+                ),
+                None => card,
             })
             .child(body);
         if known {
@@ -816,8 +848,9 @@ impl RegisterScreen {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
-                        "CURRENT SALE: {} ITEMS",
-                        self.cart.lines.len()
+                        "CURRENT SALE: {} {}",
+                        self.cart.lines.len(),
+                        if self.cart.lines.len() == 1 { "ITEM" } else { "ITEMS" }
                     ))),
             )
             .child(
@@ -914,14 +947,13 @@ impl RegisterScreen {
                                 move |this, _, _, cx| this.set_line_qty(&line_id, qty, cx)
                             })),
                     )
+                    // 74px wrapped "Rp 15.000" onto two lines; 96px holds
+                    // Rp 999.999 in Plex Mono, and nowrap keeps it one line.
                     .child(
-                        div()
-                            .w(px(74.))
+                        super::money_text(fmt_money(gross_minor, self.currency))
+                            .w(px(96.))
                             .text_right()
-                            .text_sm()
-                            .font_family(crate::theme::FONT_MONO)
-                            .font_features(crate::theme::tabular())
-                            .child(SharedString::from(fmt_money(gross_minor, self.currency))),
+                            .text_sm(),
                     )
                     .child(
                         Button::new(SharedString::from(format!("qty-inc-{}", line.id)))
@@ -1283,13 +1315,21 @@ impl PayDialog {
             .bg(cx.theme().background)
             .px_3()
             .py_2()
+            // The band used to label TOTAL without printing it.
             .child(
-                v_flex().gap_0p5().child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("TOTAL"),
-                ),
+                v_flex()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("TOTAL"),
+                    )
+                    .child(
+                        super::money_text(fmt_money(self.total_minor, self.currency))
+                            .text_xl()
+                            .font_semibold(),
+                    ),
             )
             .child(
                 v_flex()
@@ -1489,21 +1529,29 @@ impl PayDialog {
             }
             grid = grid.child(line);
         }
-        h_flex()
+        // Keypad centered on its own; the dialog's two exits share a footer
+        // row, dismiss on the left and the committing Paid on the right.
+        v_flex()
             .gap_3()
-            .items_center()
+            .child(h_flex().justify_center().child(grid))
             .child(
-                Button::new("pay-cancel")
-                    .ghost()
-                    .label("Cancel (Esc)")
-                    .on_click(|_, window, cx| window.close_dialog(cx)),
-            )
-            .child(grid)
-            .child(
+                h_flex()
+                    .justify_between()
+                    .items_center()
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        Button::new("pay-cancel")
+                            .ghost()
+                            .label("Cancel (Esc)")
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                    )
+                    .child(
                 Button::new("pay-paid")
                     .primary()
                     .large()
-                    .self_end()
+                    .w(px(220.))
                     .label("Paid")
                     .disabled(!complete)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -1512,6 +1560,7 @@ impl PayDialog {
                             redeem_points,
                         });
                     })),
+                    ),
             )
     }
 }
@@ -1878,6 +1927,15 @@ fn knowledge_peek_card(product: Product, muted: Hsla, foreground: Hsla) -> impl 
 
 pub(crate) fn fmt_money(minor: i64, currency: &Currency) -> String {
     money::format(&money::money(minor, currency.code), Some(currency)).unwrap_or_default()
+}
+
+/// Up to two initials from a product name ("Es Kopi Coklat" -> "EK").
+fn initials(name: &str) -> String {
+    name.split_whitespace()
+        .filter_map(|word| word.chars().find(|c| c.is_alphanumeric()))
+        .take(2)
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 fn digits_of(value: &str) -> String {

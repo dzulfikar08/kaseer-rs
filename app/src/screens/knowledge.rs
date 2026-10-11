@@ -229,13 +229,18 @@ impl KnowledgeScreen {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(product.sku.clone())),
                             )
-                            .when(product.route_kitchen, |row| {
-                                row.child(
-                                    Icon::new(IconName::Flame)
-                                        .with_size(px(12.))
-                                        .text_color(crate::theme::accent_dim()),
-                                )
-                            }),
+                            // The kitchen-route mark keeps a fixed slot even
+                            // when absent, so SKUs right-align on every row.
+                            .child(div().w(px(12.)).flex_none().when(
+                                product.route_kitchen,
+                                |slot| {
+                                    slot.child(
+                                        Icon::new(IconName::Flame)
+                                            .with_size(px(12.))
+                                            .text_color(crate::theme::accent_dim()),
+                                    )
+                                },
+                            )),
                     ),
             );
         }

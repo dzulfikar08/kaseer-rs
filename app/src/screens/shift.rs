@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -301,7 +302,7 @@ impl ShiftScreen {
                     .child(
                         Button::new("refresh-shift")
                             .label("Refresh")
-                            .secondary()
+                            .icon(IconName::RotateCw)
                             .small()
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let _ = this.reload(cx);
@@ -402,9 +403,15 @@ impl ShiftScreen {
         panel(cx, "Sales summary")
             .gap_2()
             .child(row("Gross", money_str(t.gross_minor, cur), false))
+            // A minus sign only when something was actually taken off:
+            // "\u{2212}Rp 0" reads as a negative amount.
             .child(row(
                 "Discount",
-                format!("\u{2212}{}", money_str(t.discount_minor, cur)),
+                if t.discount_minor > 0 {
+                    format!("\u{2212}{}", money_str(t.discount_minor, cur))
+                } else {
+                    money_str(0, cur)
+                },
                 false,
             ))
             .child(row("Tax", money_str(t.tax_minor, cur), false))
@@ -601,7 +608,7 @@ impl Render for CloseShiftDialog {
             cx.theme().danger
         };
         let variance_text = if variance == 0 {
-            format!("{} \u{2014} ok", money_str(variance, self.cur))
+            format!("{}, drawer balances", money_str(variance, self.cur))
         } else {
             format!(
                 "{}{} {}",
@@ -697,11 +704,9 @@ fn ledger_row(
                 .child(label),
         )
         .child(
-            div()
+            super::money_text(value)
                 .text_sm()
-                .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
-                .font_features(crate::theme::tabular())
-                .child(value),
+                .when(strong, |this| this.font_weight(FontWeight::MEDIUM)),
         )
 }
 

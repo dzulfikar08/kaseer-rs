@@ -313,7 +313,8 @@ impl CustomersScreen {
                             )
                             .child(
                                 Button::new("open-add-customer")
-                                    .label("+ Add customer")
+                                    .label("Add customer")
+                                    .icon(IconName::Plus)
                                     .primary()
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_add_dialog(window, cx)

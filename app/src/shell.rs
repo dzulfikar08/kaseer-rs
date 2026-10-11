@@ -16,7 +16,7 @@ use crate::theme::FONT_MONO;
 use gpui_kit::{
     actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window, div, px,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
 };
 
 use crate::screens::{
@@ -150,16 +150,24 @@ pub struct AppShell {
     /// handlers receive F-key dispatch from anywhere (text inputs bubble
     /// unhandled keys up the focus path to here).
     focus: FocusHandle,
+    /// Re-homes focus when the focused element leaves the tree (a screen
+    /// swapping its body, e.g. Training's start card becoming the lesson
+    /// view). Without it the orphaned focus swallows every F-key.
+    _focus_lost: Subscription,
 }
 
 impl AppShell {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        let _focus_lost = cx.on_focus_lost(window, |shell, window, cx| {
+            shell.focus.focus(window, cx);
+        });
         Self {
             active: NavItem::Register,
             screens: ScreenSlots::empty(),
             focus,
+            _focus_lost,
         }
     }
 
@@ -271,10 +279,14 @@ impl AppShell {
                     }))
                     .child(Icon::new(item.icon()).with_size(px(17.)).text_color(fg))
                     .child(div().text_size(px(10.5)).child(item.label()))
+                    // Key caps share the key bar's mono face. 0.45 opacity
+                    // put the inactive caption near 2.5:1 on the rail;
+                    // 0.8 keeps it quieter than the label and legible.
                     .child(
                         div()
-                            .text_size(px(8.5))
-                            .opacity(if selected { 0.75 } else { 0.45 })
+                            .font_family(FONT_MONO)
+                            .text_size(px(9.))
+                            .opacity(if selected { 1.0 } else { 0.8 })
                             .child(item.fkey()),
                     )
             }))
@@ -286,6 +298,11 @@ impl AppShell {
     fn navigate(&mut self, item: NavItem, window: &mut Window, cx: &mut Context<Self>) {
         if self.active != item {
             self.active = item;
+            // The outgoing screen's focused input leaves the tree with it,
+            // and an orphaned focus swallows every later F-key. Park focus
+            // on the shell so the global keymap keeps working; the register
+            // takes it back for its scan box in `activate`.
+            self.focus.focus(window, cx);
             if item == NavItem::Register
                 && let Some(register) = self.screens.register.as_ref()
             {

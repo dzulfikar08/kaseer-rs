@@ -1073,14 +1073,16 @@ mod tests {
     fn prune_drops_done_rows_past_the_window() {
         let dir = tempfile::tempdir().unwrap();
         let outbox = Outbox::open(dir.path().join("outbox.db").to_str().unwrap()).unwrap();
+        // "fresh" is relative to now so the test does not age out.
+        let fresh = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         outbox
             .conn
             .execute(
                 "INSERT INTO outbox (kind, ref, payload, created_at, done) VALUES
                  ('sale', 'old', '{}', '2026-01-01T00:00:00.000Z', 1),
-                 ('sale', 'fresh', '{}', '2026-09-27T00:00:00.000Z', 1),
+                 ('sale', 'fresh', '{}', ?1, 1),
                  ('sale', 'pending', '{}', '2026-01-01T00:00:00.000Z', 0)",
-                [],
+                [&fresh],
             )
             .unwrap();
         outbox.prune_done().unwrap();

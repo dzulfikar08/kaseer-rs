@@ -11,6 +11,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::scroll::{Scrollable, ScrollableElement as _};
@@ -18,7 +19,7 @@ use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Window, div, px, rems,
+    SharedString, Styled as _, Window, div, px, relative, rems,
 };
 use kaseer_core::chrono::{DateTime, Duration, SecondsFormat, Utc};
 use kaseer_core::currency::{Currency, currency_by_code};
@@ -186,6 +187,7 @@ impl ReportsScreen {
                     .child(
                         Button::new("refresh")
                             .small()
+                            .icon(IconName::RotateCw)
                             .label(if self.loading {
                                 "Loading…"
                             } else {
@@ -349,9 +351,17 @@ impl ReportsScreen {
         if total <= 0 {
             return empty_state(cx, "No payments yet.");
         }
-        h_flex().flex_wrap().gap_1p5().children(
-            rows.map(|(label, minor)| mix_chip(cx, &format!("{} · {}", label, self.money(minor)))),
-        )
+        // A ledger like the Shift screen's mix: settled methods only, each
+        // with its share so the split reads without doing sums.
+        v_flex().children(rows.into_iter().filter(|(_, minor)| *minor > 0).map(
+            |(label, minor)| {
+                let share = (minor as f64 / total as f64 * 100.).round() as i64;
+                table_row(cx)
+                    .child(cell(cx, None, label, false).text_color(cx.theme().muted_foreground))
+                    .child(cell(cx, Some(4.), &format!("{share}%"), true).text_color(cx.theme().muted_foreground))
+                    .child(cell(cx, Some(8.), &self.money(minor), true))
+            },
+        ))
     }
 
     fn render_top_products(&self, d: &ReportsData, cx: &Context<Self>) -> Div {
@@ -378,15 +388,39 @@ impl ReportsScreen {
         if d.by_hour.is_empty() {
             return empty_state(cx, "No sales in this period.");
         }
-        h_flex()
-            .flex_wrap()
-            .gap_1p5()
-            .children(d.by_hour.iter().map(|h| {
-                mix_chip(
-                    cx,
-                    &format!("{:02}h · {}", h.hour, self.money(h.total_minor)),
+        // One row per trading hour: the bar answers "when do we sell",
+        // the amount stays readable in the ledger column.
+        let max = d.by_hour.iter().map(|h| h.total_minor).max().unwrap_or(0).max(1);
+        let accent = cx.theme().accent;
+        v_flex().gap_1().children(d.by_hour.iter().map(|h| {
+            let fraction = (h.total_minor as f32 / max as f32).clamp(0.02, 1.);
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    super::money_text(format!("{:02}:00", h.hour))
+                        .flex_none()
+                        .w(rems(3.))
+                        .text_size(px(11.))
+                        .text_color(cx.theme().muted_foreground),
                 )
-            }))
+                .child(
+                    div().flex_1().min_w_0().h(px(8.)).child(
+                        div()
+                            .h_full()
+                            .w(relative(fraction))
+                            .rounded(px(4.))
+                            .bg(accent),
+                    ),
+                )
+                .child(
+                    super::money_text(self.money(h.total_minor))
+                        .flex_none()
+                        .w(rems(8.))
+                        .text_right()
+                        .text_sm(),
+                )
+        }))
     }
 
     // ── Shared building blocks ──────────────────────────────────────────
@@ -547,7 +581,11 @@ fn cell(cx: &Context<ReportsScreen>, width: Option<f32>, text: &str, mono: bool)
     let base = div()
         .text_sm()
         .text_color(cx.theme().foreground)
-        .when(mono, |c| c.font_features(crate::theme::tabular()));
+        .when(mono, |c| {
+            c.font_family(crate::theme::FONT_MONO)
+                .font_features(crate::theme::tabular())
+                .whitespace_nowrap()
+        });
     sized(base, width).child(SharedString::from(text.to_string()))
 }
 
@@ -558,19 +596,4 @@ fn sized(div: Div, width: Option<f32>) -> Div {
         Some(rem) => div.flex_none().w(rems(rem)).text_right(),
         None => div.flex_1().min_w_0().truncate(),
     }
-}
-
-/// A quiet rounded chip for read-only metadata (tender totals, hours).
-fn mix_chip(cx: &Context<ReportsScreen>, text: &str) -> Div {
-    div()
-        .px_2()
-        .py_0p5()
-        .rounded(px(999.))
-        .bg(cx.theme().muted)
-        .border_1()
-        .border_color(cx.theme().border)
-        .text_size(px(11.))
-        .font_features(crate::theme::tabular())
-        .text_color(cx.theme().muted_foreground)
-        .child(SharedString::from(text.to_string()))
 }

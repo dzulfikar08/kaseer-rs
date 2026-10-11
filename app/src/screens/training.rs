@@ -1357,8 +1357,9 @@ impl TrainingScreen {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
-                        "SANDBOX SALE: {} ITEMS",
-                        session.cart.lines.len()
+                        "SANDBOX SALE: {} {}",
+                        session.cart.lines.len(),
+                        if session.cart.lines.len() == 1 { "ITEM" } else { "ITEMS" }
                     ))),
             )
             .when_some(customer, |panel, customer| {
@@ -1468,12 +1469,12 @@ impl TrainingScreen {
                                     })),
                             )
                             .child(
-                                div()
-                                    .w(px(74.))
+                                // Same column as the register cart: 74px
+                                // wrapped "Rp 15.000" onto two lines.
+                                super::money_text(fmt_money(gross_minor, session.cur))
+                                    .w(px(96.))
                                     .text_right()
-                                    .text_sm()
-                                    .font_features(crate::theme::tabular())
-                                    .child(SharedString::from(fmt_money(gross_minor, session.cur))),
+                                    .text_sm(),
                             )
                             .child(
                                 Button::new(SharedString::from(format!("qty-inc-{}", line.id)))
@@ -1516,12 +1517,7 @@ impl TrainingScreen {
                         .text_color(color)
                         .child(SharedString::from(label.to_string())),
                 )
-                .child(
-                    div()
-                        .font_features(crate::theme::tabular())
-                        .text_color(color)
-                        .child(SharedString::from(value)),
-                )
+                .child(super::money_text(value).text_color(color))
         };
         v_flex()
             .gap_1()
@@ -1552,11 +1548,9 @@ impl TrainingScreen {
                     .pt_1()
                     .child(div().text_lg().font_semibold().child("TOTAL"))
                     .child(
-                        div()
+                        super::money_text(fmt_money(totals.total_minor, cur))
                             .text_lg()
-                            .font_semibold()
-                            .font_features(crate::theme::tabular())
-                            .child(SharedString::from(fmt_money(totals.total_minor, cur))),
+                            .font_semibold(),
                     ),
             )
             .into_any_element()

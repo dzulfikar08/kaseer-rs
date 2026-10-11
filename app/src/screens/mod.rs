@@ -29,8 +29,8 @@ pub use shift::ShiftScreen;
 pub use training::TrainingScreen;
 
 /// The web `.chip`: a full-pill toggle. Inactive is a hairline outline with
-/// muted text; active is the amber fill with the dark-on-amber foreground,
-/// semibold like the web's `.chip.active`. `cx` is the screen's render
+/// muted text; active is the Electric Blue fill with the on-accent
+/// foreground, semibold like the web's `.chip.active`. `cx` is the screen's render
 /// context (derefs to `App`).
 pub(crate) fn chip(
     cx: &App,
@@ -68,4 +68,15 @@ pub(crate) fn chip(
         .when(active, |chip| chip.font_weight(FontWeight::SEMIBOLD))
         .on_click(on_click)
         .child(label.into())
+}
+
+/// One money figure in a ledger column: Plex Mono with tabular digits,
+/// never wrapping, so amounts line up digit for digit down a column (the
+/// register's cart and totals already set money this way).
+pub(crate) fn money_text(value: impl Into<SharedString>) -> gpui_kit::Div {
+    div()
+        .font_family(crate::theme::FONT_MONO)
+        .font_features(crate::theme::tabular())
+        .whitespace_nowrap()
+        .child(value.into())
 }

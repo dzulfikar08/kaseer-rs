@@ -13,13 +13,13 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, button::Button,
-    button::ButtonVariants as _, form::Field, input::Input, input::InputEvent, input::InputState,
+    button::ButtonVariants as _, input::Input, input::InputEvent, input::InputState,
     searchable_list::SearchableListItem, searchable_list::SearchableVec, select::Select,
     select::SelectEvent, select::SelectState, switch::Switch,
 };
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, EntityId, FontWeight, IntoElement, ParentElement as _,
+    AppContext as _, Context, Div, Entity, EntityId, FontWeight, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Window, div, px, rems,
 };
 use kaseer_core::currency::{CURRENCIES, currency_by_code};
@@ -572,6 +572,21 @@ impl SettingsScreen {
 
 /// A text input seeded with `initial`, the constructor's only nontrivial
 /// helper (input state cannot be built without a live context).
+/// A settings field: the muted 12px caption every panel on this screen
+/// uses, over its control. The Store panel used the kit `Field` label
+/// (semibold 14px) and stood out from the rest of the page.
+fn labeled(cx: &Context<SettingsScreen>, label: &str, control: impl IntoElement) -> Div {
+    v_flex()
+        .gap_1()
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(label.to_string())),
+        )
+        .child(control)
+}
+
 fn text_input(
     window: &mut Window,
     cx: &mut Context<SettingsScreen>,
@@ -694,26 +709,14 @@ impl SettingsScreen {
                         .child(SharedString::from(error)),
                 )
             })
-            .child(
-                Field::new()
-                    .label("Store name")
-                    .child(Input::new(&self.store_name)),
-            )
-            .child(
-                Field::new()
-                    .label("Address (printed on receipts)")
-                    .child(Input::new(&self.address)),
-            )
-            .child(
-                Field::new()
-                    .label("Receipt footer")
-                    .child(Input::new(&self.receipt_footer)),
-            )
-            .child(
-                Field::new()
-                    .label("Currency")
-                    .child(Select::new(&self.currency)),
-            )
+            .child(labeled(cx, "Store name", Input::new(&self.store_name)))
+            .child(labeled(
+                cx,
+                "Address (printed on receipts)",
+                Input::new(&self.address),
+            ))
+            .child(labeled(cx, "Receipt footer", Input::new(&self.receipt_footer)))
+            .child(labeled(cx, "Currency", Select::new(&self.currency)))
     }
 
     fn render_loyalty_panel(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -767,7 +770,7 @@ impl SettingsScreen {
                                         self.currency_code
                                     ))),
                             )
-                            .child(Input::new(&self.step_minor).small()),
+                            .child(Input::new(&self.step_minor)),
                     )
                     .child(
                         v_flex()
@@ -780,7 +783,7 @@ impl SettingsScreen {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from("Points per step")),
                             )
-                            .child(Input::new(&self.points_per_step).small()),
+                            .child(Input::new(&self.points_per_step)),
                     )
                     .child(
                         v_flex()
@@ -796,7 +799,7 @@ impl SettingsScreen {
                                         self.currency_code
                                     ))),
                             )
-                            .child(Input::new(&self.point_value_minor).small()),
+                            .child(Input::new(&self.point_value_minor)),
                     ),
             )
             .child(
@@ -827,7 +830,7 @@ impl SettingsScreen {
                     .child(
                         div()
                             .w_24()
-                            .child(Input::new(&self.lost_after_days).small()),
+                            .child(Input::new(&self.lost_after_days)),
                     ),
             )
     }
@@ -1277,7 +1280,7 @@ impl SettingsScreen {
                                             .text_color(cx.theme().muted_foreground)
                                             .child("Pairing code"),
                                     )
-                                    .child(Input::new(&self.pairing_code).small()),
+                                    .child(Input::new(&self.pairing_code)),
                             ),
                     )
                     .child(
