@@ -16,9 +16,10 @@ use crate::theme::FONT_MONO;
 use gpui_kit::{
     actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
 
+use crate::screens::register::RegisterEvent;
 use crate::screens::{
     CustomersScreen, InventoryScreen, KnowledgeScreen, RegisterScreen, ReportsScreen,
     SettingsScreen, ShiftScreen, TrainingScreen,
@@ -154,6 +155,9 @@ pub struct AppShell {
     /// swapping its body, e.g. Training's start card becoming the lesson
     /// view). Without it the orphaned focus swallows every F-key.
     _focus_lost: Subscription,
+    /// The register's requests (its "Open shift" control), subscribed once
+    /// when the register entity is first built.
+    _register_events: Option<Subscription>,
 }
 
 impl AppShell {
@@ -168,6 +172,7 @@ impl AppShell {
             screens: ScreenSlots::empty(),
             focus,
             _focus_lost,
+            _register_events: None,
         }
     }
 
@@ -175,12 +180,24 @@ impl AppShell {
     /// screens share the constructor shape `new(window, cx)`.
     fn screen(&mut self, item: NavItem, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match item {
-            NavItem::Register => self
-                .screens
-                .register
-                .get_or_insert_with(|| cx.new(|cx| RegisterScreen::new(window, cx)))
-                .clone()
-                .into_any_element(),
+            NavItem::Register => {
+                if self.screens.register.is_none() {
+                    let register = cx.new(|cx| RegisterScreen::new(window, cx));
+                    self._register_events = Some(cx.subscribe_in(
+                        &register,
+                        window,
+                        |shell, _, event, window, cx| match event {
+                            RegisterEvent::OpenShift => shell.navigate(NavItem::Shift, window, cx),
+                        },
+                    ));
+                    self.screens.register = Some(register);
+                }
+                self.screens
+                    .register
+                    .clone()
+                    .expect("register built above")
+                    .into_any_element()
+            }
             NavItem::Shift => self
                 .screens
                 .shift
@@ -230,7 +247,8 @@ impl AppShell {
         let active = self.active;
         // The web `.rail`: a 76px strip, items 64px wide with the icon
         // stacked over a 10.5px label; the active item sits on surface-2 in
-        // accent. No brand block: the web rail starts straight in.
+        // accent. The K-mark heads the rail: the brand's one mark, drawn
+        // from the site's own SVG so the gradient matches.
         v_flex()
             .id("nav-rail")
             .w(px(76.))
@@ -242,6 +260,13 @@ impl AppShell {
             .bg(cx.theme().sidebar)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
+            .child(
+                img(crate::theme::KMARK_PATH)
+                    .size(px(30.))
+                    .flex_none()
+                    .mt(px(4.))
+                    .mb(px(12.)),
+            )
             .children(NAV_ITEMS.iter().map(|item| {
                 let item = *item;
                 let selected = item == active;

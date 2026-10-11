@@ -70,12 +70,12 @@ pub(crate) fn chip(
         .child(label.into())
 }
 
-/// One money figure in a ledger column: Plex Mono with tabular digits,
+/// One money figure in a ledger column: tabular digits in the sans,
 /// never wrapping, so amounts line up digit for digit down a column (the
 /// register's cart and totals already set money this way).
 pub(crate) fn money_text(value: impl Into<SharedString>) -> gpui_kit::Div {
     div()
-        .font_family(crate::theme::FONT_MONO)
+        .font_family(crate::theme::FONT_MONEY)
         .font_features(crate::theme::tabular())
         .whitespace_nowrap()
         .child(value.into())

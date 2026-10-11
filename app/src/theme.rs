@@ -13,8 +13,21 @@
 //!   white foreground on accent
 //! - states: danger `#F87171`, ok emerald `#10B981`
 //! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
-//! - IBM Plex Sans + IBM Plex Mono (embedded via `assets/fonts`), 14px
-//!   base, money in Plex Mono
+//! - Plus Jakarta Sans (UI and money, `tnum`) + IBM Plex Mono (key caps,
+//!   receipt only), embedded via `assets/fonts`, 14px base
+//!
+//! Revenue register (0.2.6):
+//! - Category hues: six muted tones (ochre, clay, sage, teal, lavender,
+//!   dusty rose) that read on navy without competing with the accent. They
+//!   carry information, not decoration: a product tile's 4px left edge and
+//!   the dot on its filter chip share the category's hue, so a cashier finds
+//!   items by colour region. Assigned by category order; a category outside
+//!   the list gets a stable hash of its name. Same values as kaseer-web.
+//! - The deep K gradient (135deg #2563EB, #4F46E5, #7C3AED) is reserved
+//!   for the register's total block, the one place the sale's money and the
+//!   Pay action live. Nothing else in the app may use a gradient. The deep
+//!   stops (not the lighter brand-board ones) keep white text at AA.
+//! - The K-mark SVG lives here too, so brand hex never leaves this file.
 
 use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{App, Hsla, Pixels, px};
@@ -33,6 +46,21 @@ const ACCENT: &str = "#3B82F6";
 const ACCENT_DIM: &str = "#2563EB";
 const DANGER: &str = "#F87171";
 const OK: &str = "#10B981";
+/// Gray 900 from the brand board: ink on the white inverse Pay button.
+const NAVY_INK: &str = "#0F172A";
+
+/// Category hues, in category order (see the module note).
+const CATEGORY_HUES: [&str; 6] = [
+    "#D4A657", // ochre
+    "#D98B6A", // clay
+    "#8DB580", // sage
+    "#5FB0BD", // teal
+    "#A895D9", // lavender
+    "#C98AA8", // dusty rose
+];
+
+/// Deep K gradient stops for the total block (135deg).
+const TOTAL_GRADIENT: [&str; 3] = ["#2563EB", "#4F46E5", "#7C3AED"];
 /// The web `.btn.primary`/`.chip.active` foreground: white keeps the
 /// Electric Blue readable.
 const ON_ACCENT: &str = "#ffffff";
@@ -40,9 +68,17 @@ const ON_ACCENT: &str = "#ffffff";
 /// The app's embedded sans family. Matches the family name baked into the
 /// TTFs under `assets/fonts`, which `install` registers with the text
 /// system; a family set explicitly on the theme is used as-is.
-pub const FONT_SANS: &str = "IBM Plex Sans";
+/// Plus Jakarta Sans (Tokotype, OFL): drawn in Jakarta for the city's
+/// identity, which suits a register built for Indonesian shops; its open
+/// counters read well at tile size.
+pub const FONT_SANS: &str = "Plus Jakarta Sans";
 
-/// Money, key caps, and tabular readouts: the canvas `font-mono`.
+/// Money: the sans with `tnum` (see `tabular`), so amounts line up digit
+/// for digit without reading as code.
+pub const FONT_MONEY: &str = FONT_SANS;
+
+/// Key caps and the receipt preview only: things that are mono in the
+/// physical world (keyboard legends, thermal printer output).
 pub const FONT_MONO: &str = "IBM Plex Mono";
 
 /// The web `.receipt`: white paper, near-black ink. Functions because
@@ -60,9 +96,9 @@ pub fn receipt_ink() -> Hsla {
 /// the theme radius for both, and the two genuinely differ on the web.
 pub const CARD_RADIUS: Pixels = px(12.);
 
-/// Web money cells set `font-variant-numeric: tabular-nums`; the embedded
-/// Inter honors `tnum`, so digits line up without falling back to
-/// a monospace face.
+/// Web money cells set `font-variant-numeric: tabular-nums`; Plus Jakarta
+/// Sans ships `tnum` (its default digits are proportional), so money must
+/// always carry this.
 pub fn tabular() -> gpui_kit::FontFeatures {
     gpui_kit::FontFeatures(std::sync::Arc::new(vec![("tnum".to_string(), 1)]))
 }
@@ -82,19 +118,83 @@ pub fn accent_soft() -> Hsla {
     token("#3B82F626")
 }
 
+/// A category's identity hue: its position in the catalog's category list,
+/// or, for a name outside the list, a stable FNV-1a hash of the name. Both
+/// paths are deterministic, so a tile never changes colour between renders.
+pub fn category_hue(categories: &[String], name: &str) -> Hsla {
+    let index = categories
+        .iter()
+        .position(|category| category == name)
+        .unwrap_or_else(|| category_hash(name) as usize);
+    token(CATEGORY_HUES[index % CATEGORY_HUES.len()])
+}
+
+fn category_hash(name: &str) -> u32 {
+    name.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    })
+}
+
+/// The total block's two gradient layers. GPUI gradients take two stops,
+/// so the three-stop K gradient is a base layer (blue to indigo, holding
+/// indigo past the midpoint) under a layer that fades violet in from the
+/// midpoint. Painted as two stacked fills, the result matches the CSS
+/// `linear-gradient(135deg, #2563EB, #4F46E5, #7C3AED)`.
+pub fn total_gradient() -> [gpui_kit::Background; 2] {
+    let [blue, indigo, violet] = TOTAL_GRADIENT.map(token);
+    [
+        gpui_kit::linear_gradient(
+            135.,
+            gpui_kit::linear_color_stop(blue, 0.),
+            gpui_kit::linear_color_stop(indigo, 0.5),
+        ),
+        gpui_kit::linear_gradient(
+            135.,
+            gpui_kit::linear_color_stop(violet.opacity(0.), 0.5),
+            gpui_kit::linear_color_stop(violet, 1.),
+        ),
+    ]
+}
+
+/// The card border (`#ffffff14`) pre-blended over the tile surface. Product
+/// tiles paint their category hue under the border, where a translucent
+/// border would turn the hue's colour; this opaque twin keeps the outline
+/// identical to every other card.
+pub fn tile_border() -> Hsla {
+    token("#29344A")
+}
+
+/// Ink on the white inverse button inside the total block.
+pub fn navy_ink() -> Hsla {
+    token(NAVY_INK)
+}
+
+/// White on the gradient: every stop passes AA for normal text (5.2:1 at
+/// the lightest stop).
+pub fn on_gradient() -> Hsla {
+    token(ON_ACCENT)
+}
+
+/// The K-mark (kaseer-site `public/kmark.svg`), served by the app's asset
+/// source at [`KMARK_PATH`]. Rendered as an image so the gradient survives
+/// (an `svg()` element would tint it to one colour). 128px intrinsic size
+/// so the rasterized mark stays crisp at the rail's 30px.
+pub const KMARK_PATH: &str = "brand/kmark.svg";
+pub const KMARK_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128"><defs><linearGradient id="k" x1="8" y1="58" x2="56" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8B5CF6"/><stop offset=".52" stop-color="#6366F1"/><stop offset="1" stop-color="#3B82F6"/></linearGradient></defs><path fill="url(#k)" d="M10 6h14v20.8L44.6 6H59L38.2 29.4 59.4 58H44.1L27.6 36.9 24 41.2V58H10Z"/></svg>"##;
+
 /// Load the dark base theme, then repaint every surface role with the web
 /// palette. Call once after `gpui_kit::init`, before opening windows.
 pub fn install(cx: &mut App) {
     let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-Regular.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-Medium.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-SemiBold.ttf")),
         std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
         std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-SemiBold.ttf")),
     ];
     cx.text_system()
         .add_fonts(fonts)
-        .expect("embedded IBM Plex loads");
+        .expect("embedded fonts load");
 
     Theme::change(ThemeMode::Dark, None, cx);
 
@@ -177,8 +277,8 @@ pub fn install(cx: &mut App) {
         theme.radius = px(9.);
         theme.radius_lg = px(14.);
 
-        // The canvas sets IBM Plex Sans as the app family and Plex Mono
-        // for money/readouts; both families are embedded above.
+        // Plus Jakarta Sans for the app (money via `tnum`); Plex Mono for
+        // key caps and the receipt. Both families are embedded above.
         theme.font_family = FONT_SANS.into();
         theme.mono_font_family = FONT_MONO.into();
 
@@ -188,4 +288,19 @@ pub fn install(cx: &mut App) {
     }
 
     Theme::sync_base(cx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CATEGORY_HUES, category_hash, category_hue, token};
+
+    #[test]
+    fn category_hue_follows_order_then_hash() {
+        let categories: Vec<String> = ["Coffee", "Food"].map(String::from).to_vec();
+        assert_eq!(category_hue(&categories, "Coffee"), token(CATEGORY_HUES[0]));
+        assert_eq!(category_hue(&categories, "Food"), token(CATEGORY_HUES[1]));
+        let unknown = category_hash("Bakery") as usize % CATEGORY_HUES.len();
+        assert_eq!(category_hue(&categories, "Bakery"), token(CATEGORY_HUES[unknown]));
+        assert_eq!(category_hue(&[], "Bakery"), category_hue(&[], "Bakery"));
+    }
 }

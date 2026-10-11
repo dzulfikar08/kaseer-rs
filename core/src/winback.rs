@@ -96,6 +96,29 @@ pub fn winback_list(sales: &[Sale], customers: &[Customer], lost_after_days: i64
     entries.into_iter().map(|(_, entry)| entry).collect()
 }
 
+/// What the register says about an attached customer: lifetime visits,
+/// whole days since the last one, and whether that gap crosses the lost
+/// boundary (the same strict "older than lost_after_days" test as
+/// [`winback_list`], so a customer the win-back list calls lost is greeted
+/// as coming back).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Recognition {
+    pub visits: i64,
+    /// `None` for a customer with no settled sale yet.
+    pub days_since: Option<i64>,
+    pub returning_after_lost: bool,
+}
+
+pub fn recognition(visits: i64, last_visit_at: Option<&str>, lost_after_days: i64, now_iso: &str) -> Recognition {
+    let now_ms = parse_ms(now_iso).unwrap_or(0);
+    let last_ms = last_visit_at.and_then(parse_ms).filter(|_| visits > 0);
+    Recognition {
+        visits,
+        days_since: last_ms.map(|ms| ((now_ms - ms) / MS_DAY).max(0)),
+        returning_after_lost: last_ms.is_some_and(|ms| ms < now_ms - lost_after_days * MS_DAY),
+    }
+}
+
 /// 'name;phone' lines for the contacts a WhatsApp blast can actually reach.
 pub fn whatsapp_ready(list: &[WinbackEntry]) -> String {
     let lines: Vec<String> = list

@@ -6,7 +6,9 @@
 mod common;
 
 use common::{line_sale, unit_line};
-use kaseer_core::bundles::{co_purchase_pairs, BundlePair};
+use std::collections::HashSet;
+
+use kaseer_core::bundles::{co_purchase_pairs, partner_suggestions, BundlePair, PartnerSuggestion};
 use kaseer_core::receipt::Sale;
 
 const COFFEE: &str = "p-coffee";
@@ -112,4 +114,33 @@ fn limit_trims_the_strongest_pairs_zero_yields_none() {
 #[test]
 fn no_sales_no_bundles() {
     assert!(co_purchase_pairs(&[], 10).is_empty());
+}
+
+#[test]
+fn partner_suggestions_skip_basket_items_weak_pairs_and_unavailable_products() {
+    const TEA: &str = "p-tea";
+    let pairs = vec![
+        pair(COFFEE, "Kopi Susu", CROISSANT, "Croissant", 27, 6000),
+        pair(RICE, "Nasi Goreng", TEA, "Es Teh", 12, 5000),
+        pair(COFFEE, "Kopi Susu", TEA, "Es Teh", 4, 1000),
+        pair(COFFEE, "Kopi Susu", RICE, "Nasi Goreng", 1, 100),
+    ];
+    let basket: HashSet<&str> = [COFFEE].into_iter().collect();
+    let got = partner_suggestions(&pairs, &basket, 2, 2, |_| true);
+    assert_eq!(
+        got,
+        vec![
+            PartnerSuggestion { product_id: CROISSANT.into(), anchor_id: COFFEE.into(), anchor_name: "Kopi Susu".into(), support: 27 },
+            PartnerSuggestion { product_id: TEA.into(), anchor_id: COFFEE.into(), anchor_name: "Kopi Susu".into(), support: 4 },
+        ]
+    );
+    // Partner already in the basket is never suggested; support 1 never shows.
+    let both: HashSet<&str> = [COFFEE, CROISSANT].into_iter().collect();
+    let got = partner_suggestions(&pairs, &both, 2, 2, |_| true);
+    assert_eq!(got.iter().map(|s| s.product_id.as_str()).collect::<Vec<_>>(), vec![TEA]);
+    // Archived or unknown partners are filtered by the caller's predicate.
+    assert!(partner_suggestions(&pairs, &basket, 2, 2, |id| id == RICE).is_empty());
+    // Empty basket, empty history: nothing to show, nothing invented.
+    assert!(partner_suggestions(&pairs, &HashSet::new(), 2, 2, |_| true).is_empty());
+    assert!(partner_suggestions(&[], &basket, 2, 2, |_| true).is_empty());
 }

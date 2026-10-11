@@ -78,3 +78,54 @@ pub fn co_purchase_pairs(sales: &[Sale], limit: usize) -> Vec<BundlePair> {
     rows.truncate(limit);
     rows
 }
+
+/// One "often bought with" row for the register: a partner product not in
+/// the basket, the basket item it pairs with, and how many past sales held
+/// both (the evidence shown to the cashier).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartnerSuggestion {
+    pub product_id: String,
+    pub anchor_id: String,
+    pub anchor_name: String,
+    pub support: i64,
+}
+
+/// Partners for the products in `basket`, strongest pair first (the input
+/// order of [`co_purchase_pairs`]). A partner already in the basket is
+/// skipped, each partner appears once, and pairs below `min_support` shared
+/// sales are ignored: one shared basket is a coincidence, not a habit.
+/// `available` filters partners the register can actually sell.
+pub fn partner_suggestions(
+    pairs: &[BundlePair],
+    basket: &HashSet<&str>,
+    min_support: i64,
+    limit: usize,
+    available: impl Fn(&str) -> bool,
+) -> Vec<PartnerSuggestion> {
+    let mut out: Vec<PartnerSuggestion> = vec![];
+    for pair in pairs.iter().filter(|pair| pair.support >= min_support) {
+        let sides = [
+            (&pair.product_id_a, &pair.name_a, &pair.product_id_b),
+            (&pair.product_id_b, &pair.name_b, &pair.product_id_a),
+        ];
+        for (anchor_id, anchor_name, partner) in sides {
+            if basket.contains(anchor_id.as_str())
+                && !basket.contains(partner.as_str())
+                && !out.iter().any(|s| s.product_id == *partner)
+                && available(partner)
+            {
+                out.push(PartnerSuggestion {
+                    product_id: partner.clone(),
+                    anchor_id: anchor_id.clone(),
+                    anchor_name: anchor_name.clone(),
+                    support: pair.support,
+                });
+            }
+        }
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out.truncate(limit);
+    out
+}

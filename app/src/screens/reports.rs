@@ -582,7 +582,7 @@ fn cell(cx: &Context<ReportsScreen>, width: Option<f32>, text: &str, mono: bool)
         .text_sm()
         .text_color(cx.theme().foreground)
         .when(mono, |c| {
-            c.font_family(crate::theme::FONT_MONO)
+            c.font_family(crate::theme::FONT_MONEY)
                 .font_features(crate::theme::tabular())
                 .whitespace_nowrap()
         });

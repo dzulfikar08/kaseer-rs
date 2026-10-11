@@ -656,6 +656,16 @@ impl Repo {
             .collect())
     }
 
+    /// Visit count and newest sale stamp for one customer, straight from
+    /// the sales index (the register's recognition line; no rehydration).
+    pub fn customer_visit_summary(&self, customer_id: &str) -> Result<(i64, Option<String>)> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*), MAX(at) FROM sales WHERE customer_id = ?",
+            [customer_id],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),
+        )?)
+    }
+
     pub fn sale_by_id(&self, id: &str) -> Result<Option<Sale>> {
         let row = self
             .conn

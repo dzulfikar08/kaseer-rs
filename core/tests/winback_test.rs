@@ -11,7 +11,7 @@ use common::{bare_sale, customer};
 use kaseer_core::db::open_repo;
 use kaseer_core::receipt::Sale;
 use kaseer_core::repos::{Customer, Repo};
-use kaseer_core::winback::{reengagement_csv, whatsapp_ready, winback_list, WinbackEntry};
+use kaseer_core::winback::{recognition, reengagement_csv, whatsapp_ready, winback_list, Recognition, WinbackEntry};
 
 const NOW: &str = "2026-09-27T12:00:00.000Z";
 
@@ -223,4 +223,30 @@ fn reengagement_csv_quotes_fields_with_commas_quotes_or_newlines() {
     let csv = reengagement_csv(&winback_list(&sales, &customers, 30, NOW));
 
     assert!(csv.contains("\"Dewi \"\"Sari\"\", Warung\n02\""));
+}
+
+#[test]
+fn recognition_flags_returning_customers_on_the_winback_boundary() {
+    let lost = recognition(9, Some(&days_before_now(47.0)), 30, NOW);
+    assert_eq!(lost, Recognition { visits: 9, days_since: Some(47), returning_after_lost: true });
+    // Exactly on the cutoff is not lost yet, matching winback_list.
+    let edge = recognition(3, Some(&days_before_now(30.0)), 30, NOW);
+    assert_eq!(edge.days_since, Some(30));
+    assert!(!edge.returning_after_lost);
+    let regular = recognition(14, Some(&days_before_now(2.5)), 30, NOW);
+    assert_eq!(regular.days_since, Some(2));
+    assert!(!regular.returning_after_lost);
+    let first = recognition(0, None, 30, NOW);
+    assert_eq!(first, Recognition { visits: 0, days_since: None, returning_after_lost: false });
+}
+
+#[test]
+fn customer_visit_summary_counts_sales_and_finds_the_newest() {
+    let repo = open_repo(":memory:").unwrap();
+    let c = repo.upsert_customer(&customer("c1", "Rina", "", 0, "2026-01-01T00:00:00.000Z")).unwrap();
+    assert_eq!(repo.customer_visit_summary(&c.id).unwrap(), (0, None));
+    for (at, who) in [(days_before_now(40.0), Some("c1")), (days_before_now(5.0), Some("c1")), (days_before_now(1.0), None)] {
+        repo.insert_sale(&bare_sale(&at, who, vec![], 10_000, 0), &HashMap::new(), 0).unwrap();
+    }
+    assert_eq!(repo.customer_visit_summary("c1").unwrap(), (2, Some(days_before_now(5.0))));
 }
