@@ -20,6 +20,8 @@ use gpui_kit::{
     ParentElement as _, Pixels, Render, SharedString, Styled as _, Window, div, px,
 };
 use kaseer_core::currency::{Currency, currency_by_code};
+
+use crate::theme::metrics;
 use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::inventory::{StockReason, StockTracking, is_low_stock};
 use kaseer_core::money;
@@ -178,7 +180,7 @@ impl InventoryScreen {
                     DialogFooter::new()
                         .child(
                             DialogClose::new()
-                                .trigger(|button| button.label("Cancel").outline().small()),
+                                .trigger(|button| button.label("Cancel").ghost().small()),
                         )
                         .child(
                             DialogAction::new()
@@ -290,11 +292,11 @@ impl InventoryScreen {
 
         v_flex()
             .w_full()
-            .p_6()
-            .gap_4()
+            .p(px(12.))
+            .gap(px(12.))
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap(px(8.))
                     .flex_wrap()
                     .child(self.stat_cell(cx, "Tracked SKUs", tracked.to_string(), None))
                     .child(self.stat_cell(
@@ -319,6 +321,8 @@ impl InventoryScreen {
             .child(self.render_stock_table(cx))
     }
 
+    /// The shared Atur KPI tile, with the value tinted when it carries a
+    /// state (low / out of stock).
     fn stat_cell(
         &self,
         cx: &Context<Self>,
@@ -326,28 +330,16 @@ impl InventoryScreen {
         value: String,
         color: Option<gpui_kit::Hsla>,
     ) -> impl IntoElement {
-        v_flex()
+        super::panel(cx)
             .flex_1()
             .min_w(px(180.))
-            .gap_1()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+            .gap(px(4.))
+            .child(super::section_title(cx, label.to_string()))
             .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(label.to_uppercase())),
-            )
-            .child(
-                div()
-                    .text_size(px(22.))
+                super::money_text(value)
+                    .text_size(metrics::FONT_DISPLAY)
                     .font_weight(FontWeight::SEMIBOLD)
-                    .font_features(crate::theme::tabular())
-                    .text_color(color.unwrap_or(cx.theme().foreground))
-                    .child(SharedString::from(value)),
+                    .text_color(color.unwrap_or(cx.theme().foreground)),
             )
     }
 
@@ -368,9 +360,9 @@ impl InventoryScreen {
             };
             body = body.child(
                 div()
-                    .p_4()
+                    .p(px(12.))
                     .text_center()
-                    .text_sm()
+                    .text_size(metrics::FONT_BODY)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
                         "Nothing {noun} stock right now."
@@ -378,25 +370,14 @@ impl InventoryScreen {
             );
         }
 
-        v_flex()
+        super::panel(cx)
             .flex_1()
-            .gap_2()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+            .gap(px(8.))
             .child(
                 h_flex()
                     .items_center()
                     .justify_between()
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child("STOCK ON HAND"),
-                    )
+                    .child(super::section_title(cx, "Stock on hand"))
                     .child(self.render_filter_chips(cx)),
             )
             .child(self.render_table_header(cx))
@@ -439,16 +420,17 @@ impl InventoryScreen {
     fn render_table_header(&self, cx: &Context<Self>) -> impl IntoElement {
         let head = |text: &str| {
             div()
-                .text_size(px(11.))
+                .text_size(metrics::FONT_FOOTNOTE)
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(text.to_uppercase()))
         };
         // Same widths as `render_product_row`, or the headings drift off
         // their columns.
         h_flex()
-            .gap_3()
-            .px_3()
-            .pb_2()
+            .gap(px(12.))
+            .px(px(8.))
+            .pb(px(6.))
             .border_b_1()
             .border_color(cx.theme().border)
             .child(head("Product").flex_1().min_w_0())
@@ -473,9 +455,9 @@ impl InventoryScreen {
 
         h_flex()
             .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
+            .gap(px(12.))
+            .px(px(8.))
+            .py(px(6.))
             .border_b_1()
             .border_color(cx.theme().border)
             .child(
@@ -484,40 +466,38 @@ impl InventoryScreen {
                     .min_w_0()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(metrics::FONT_EMPHASIS)
                             .truncate()
                             .child(SharedString::from(product.name.clone())),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_CAPTION)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(product.sku.clone())),
                     ),
             )
             .child(
                 div()
                     .w(COL_CATEGORY)
-                    .text_sm()
+                    .text_size(metrics::FONT_BODY)
+                    .text_color(cx.theme().muted_foreground)
                     .truncate()
                     .child(SharedString::from(product.category.clone())),
             )
             .child(
-                div()
+                super::money_text(on_hand.to_string())
                     .w(COL_NUMBER)
                     .text_right()
-                    .text_sm()
-                    .font_features(crate::theme::tabular())
-                    .child(SharedString::from(on_hand.to_string())),
+                    .text_size(metrics::FONT_BODY),
             )
             .child(
-                div()
+                super::money_text(product.low_stock_at.to_string())
                     .w(COL_NUMBER)
                     .text_right()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_features(crate::theme::tabular())
-                    .child(SharedString::from(product.low_stock_at.to_string())),
+                    .text_size(metrics::FONT_BODY)
+                    .text_color(cx.theme().muted_foreground),
             )
             .child(
                 // Inset so the left-aligned word does not read as a suffix
@@ -525,16 +505,14 @@ impl InventoryScreen {
                 div()
                     .w(COL_STATUS)
                     .pl(px(12.))
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(status_color)
-                    .child(SharedString::from(status)),
+                    .flex()
+                    .child(status_pill(status, status_color)),
             )
             .child(
                 h_flex().w(COL_ACTION).justify_end().child(
                 Button::new(SharedString::from(format!("adjust-{}", product.id)))
                     .label("Adjust")
-                    .outline()
+                    .secondary()
                     .small()
                     .on_click(cx.listener(move |this, _, window, cx| {
                         let name = this
@@ -549,6 +527,21 @@ impl InventoryScreen {
                 ),
             )
     }
+}
+
+/// A status word as a small tinted pill: the word in the state colour over
+/// that colour at 12%.
+fn status_pill(label: &'static str, color: gpui_kit::Hsla) -> impl IntoElement {
+    div()
+        .flex_none()
+        .px(px(6.))
+        .py(px(1.))
+        .rounded(px(999.))
+        .bg(color.opacity(0.12))
+        .text_color(color)
+        .text_size(metrics::FONT_FOOTNOTE)
+        .font_weight(FontWeight::MEDIUM)
+        .child(SharedString::from(label))
 }
 
 // ── Adjust-stock dialog view ────────────────────────────────────────────
@@ -617,15 +610,15 @@ impl AdjustStockDialog {
 impl Render for AdjustStockDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
-            .gap_3()
+            .gap(px(12.))
             .child(
                 h_flex()
                     .items_center()
-                    .gap_3()
+                    .gap(px(12.))
                     .child(
                         div()
                             .w_16()
-                            .text_sm()
+                            .text_size(metrics::FONT_BODY)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from("Reason")),
                     )
@@ -655,11 +648,11 @@ impl Render for AdjustStockDialog {
             .child(
                 h_flex()
                     .items_center()
-                    .gap_3()
+                    .gap(px(12.))
                     .child(
                         div()
                             .w_16()
-                            .text_sm()
+                            .text_size(metrics::FONT_BODY)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from("Qty")),
                     )
@@ -668,11 +661,11 @@ impl Render for AdjustStockDialog {
             .child(
                 h_flex()
                     .items_center()
-                    .gap_3()
+                    .gap(px(12.))
                     .child(
                         div()
                             .w_16()
-                            .text_sm()
+                            .text_size(metrics::FONT_BODY)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from("Note")),
                     )

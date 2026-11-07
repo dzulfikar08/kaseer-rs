@@ -30,6 +30,8 @@ use kaseer_core::repos::{Repo, Settings, StoreConfig};
 use kaseer_core::sync::{self, Outbox};
 use kaseer_core::tax::TaxRate;
 
+use crate::theme::metrics;
+
 /// One editable percent cell: the stored rate plus its input.
 struct TaxField {
     rate: TaxRate,
@@ -572,7 +574,7 @@ impl SettingsScreen {
 
 /// A text input seeded with `initial`, the constructor's only nontrivial
 /// helper (input state cannot be built without a live context).
-/// A settings field: the muted 12px caption every panel on this screen
+/// A settings field: the muted 11px caption every panel on this screen
 /// uses, over its control. The Store panel used the kit `Field` label
 /// (semibold 14px) and stood out from the rest of the page.
 fn labeled(cx: &Context<SettingsScreen>, label: &str, control: impl IntoElement) -> Div {
@@ -580,7 +582,7 @@ fn labeled(cx: &Context<SettingsScreen>, label: &str, control: impl IntoElement)
         .gap_1()
         .child(
             div()
-                .text_xs()
+                .text_size(metrics::FONT_FOOTNOTE)
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(label.to_string())),
         )
@@ -685,26 +687,17 @@ impl SettingsScreen {
     }
 
     fn render_store_panel(&self, cx: &Context<Self>) -> impl IntoElement {
-        v_flex()
+        super::panel(cx)
             .flex_1()
             .min_w_80()
-            .gap_3()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+            .gap(px(12.))
             .child(
-                div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().muted_foreground)
-                    .child("STORE"),
+                super::section_title(cx, "STORE"),
             )
             .when_some(self.load_error.clone(), |panel, error| {
                 panel.child(
                     div()
-                        .text_sm()
+                        .text_size(metrics::FONT_FOOTNOTE)
                         .text_color(cx.theme().danger)
                         .child(SharedString::from(error)),
                 )
@@ -725,21 +718,12 @@ impl SettingsScreen {
         let points = non_neg_int(&self.points_per_step.read(cx).value());
         let point_value = non_neg_int(&self.point_value_minor.read(cx).value());
 
-        v_flex()
+        super::panel(cx)
             .flex_1()
             .min_w_80()
-            .gap_3()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+            .gap(px(12.))
             .child(
-                div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().muted_foreground)
-                    .child("LOYALTY"),
+                super::section_title(cx, "LOYALTY"),
             )
             .child(
                 Switch::new("loyalty-enabled")
@@ -763,7 +747,7 @@ impl SettingsScreen {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(metrics::FONT_FOOTNOTE)
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(format!(
                                         "Spend per step ({})",
@@ -779,7 +763,7 @@ impl SettingsScreen {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(metrics::FONT_FOOTNOTE)
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from("Points per step")),
                             )
@@ -792,7 +776,7 @@ impl SettingsScreen {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(metrics::FONT_FOOTNOTE)
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(format!(
                                         "Point value ({})",
@@ -804,8 +788,8 @@ impl SettingsScreen {
             )
             .child(
                 div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_size(metrics::FONT_FOOTNOTE)
+                    .text_color(crate::theme::text_dim())
                     .child(SharedString::from(format!(
                         "{} of spend earns {} pts · 1 pt = {} off.",
                         money_text(step_minor, &currency),
@@ -821,7 +805,7 @@ impl SettingsScreen {
                     .pt_2()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(metrics::FONT_FOOTNOTE)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
                                 "Customer considered lost after (days without purchase)",
@@ -843,8 +827,8 @@ impl SettingsScreen {
             .gap_2()
             .child(
                 div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_size(metrics::FONT_FOOTNOTE)
+                    .text_color(crate::theme::text_dim())
                     .child(SharedString::from(
                         "Currency changes reprice every screen after save.",
                     )),
@@ -880,13 +864,8 @@ impl SettingsScreen {
             })
             .collect::<Vec<_>>();
 
-        v_flex()
-            .gap_3()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+        super::panel(cx)
+            .gap(px(12.))
             .child(
                 h_flex()
                     .w_full()
@@ -894,16 +873,12 @@ impl SettingsScreen {
                     .flex_wrap()
                     .gap_2()
                     .child(
-                        div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child("TAX RATES"),
+                        super::section_title(cx, "TAX RATES"),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(
                                 "Percent: saved when a field loses focus",
                             )),
@@ -917,13 +892,8 @@ impl SettingsScreen {
     /// cashier's sale path never blocks on the cloud.
     fn render_sync_panel(&self, cx: &Context<Self>) -> impl IntoElement {
         let (pending, last_sync, last_error) = self.sync_status();
-        v_flex()
-            .gap_3()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+        super::panel(cx)
+            .gap(px(12.))
             .child(
                 h_flex()
                     .w_full()
@@ -931,16 +901,13 @@ impl SettingsScreen {
                     .flex_wrap()
                     .gap_2()
                     .child(
-                        div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child("CLOUD SYNC"),
+                        super::section_title(cx, "CLOUD SYNC"),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(format!(
                                 "{} pending · last sync {}",
                                 pending,
@@ -954,7 +921,7 @@ impl SettingsScreen {
             .when_some(last_error, |panel, error| {
                 panel.child(
                     div()
-                        .text_xs()
+                        .text_size(metrics::FONT_FOOTNOTE)
                         .text_color(cx.theme().danger)
                         .child(SharedString::from(format!("Last error: {error}"))),
                 )
@@ -962,7 +929,7 @@ impl SettingsScreen {
             .when(self.outbox.is_none(), |panel| {
                 panel.child(
                     div()
-                        .text_sm()
+                        .text_size(metrics::FONT_FOOTNOTE)
                         .text_color(cx.theme().danger)
                         .child("Sync database unavailable: sync disabled."),
                 )
@@ -980,7 +947,7 @@ impl SettingsScreen {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(metrics::FONT_FOOTNOTE)
                                     .text_color(cx.theme().muted_foreground)
                                     .child("Cloud URL"),
                             )
@@ -993,7 +960,7 @@ impl SettingsScreen {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(metrics::FONT_FOOTNOTE)
                                     .text_color(cx.theme().muted_foreground)
                                     .child("Store token"),
                             )
@@ -1009,8 +976,8 @@ impl SettingsScreen {
                     .gap_2()
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(
                                 self.sync_message.clone().unwrap_or_else(|| {
                                     "Fields save when they lose focus.".to_string()
@@ -1024,6 +991,8 @@ impl SettingsScreen {
                             } else {
                                 "Sync now"
                             })
+                            .secondary()
+                            .small()
                             .disabled(self.sync_in_flight || self.outbox.is_none())
                             .on_click(cx.listener(|this, _, _, cx| this.sync_now(cx))),
                     ),
@@ -1050,20 +1019,20 @@ impl SettingsScreen {
                     .flex_wrap()
                     .gap_2()
                     .child(
-                        div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(if enrolled {
+                        super::section_title(
+                            cx,
+                            if enrolled {
                                 "MENU (CLOUD)"
                             } else {
                                 "MENU (COMPANION)"
-                            }),
+                            },
+                        ),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(format!(
                                 "Menu source: {} · last pull {}",
                                 if enrolled {
@@ -1081,7 +1050,7 @@ impl SettingsScreen {
             .when_some(last_error, |section, error| {
                 section.child(
                     div()
-                        .text_xs()
+                        .text_size(metrics::FONT_FOOTNOTE)
                         .text_color(cx.theme().danger)
                         .child(SharedString::from(format!("Last error: {error}"))),
                 )
@@ -1094,7 +1063,7 @@ impl SettingsScreen {
                         .gap_1()
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(metrics::FONT_FOOTNOTE)
                                 .text_color(cx.theme().muted_foreground)
                                 .child("Menu source (companion)"),
                         )
@@ -1110,8 +1079,8 @@ impl SettingsScreen {
                     .gap_2()
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(
                                 self.menu_message.clone().unwrap_or_else(|| {
                                     "Polls every 30s; edits from this terminal push back."
@@ -1126,6 +1095,8 @@ impl SettingsScreen {
                             } else {
                                 "Pull menu now"
                             })
+                            .secondary()
+                            .small()
                             .disabled(self.menu_in_flight || self.outbox.is_none())
                             .on_click(cx.listener(|this, _, _, cx| this.pull_menu_now(cx))),
                     ),
@@ -1149,13 +1120,8 @@ impl SettingsScreen {
             .as_ref()
             .and_then(|outbox| outbox.meta_get("update_pending"));
 
-        v_flex()
-            .gap_3()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+        super::panel(cx)
+            .gap(px(12.))
             .child(
                 h_flex()
                     .w_full()
@@ -1163,16 +1129,13 @@ impl SettingsScreen {
                     .flex_wrap()
                     .gap_2()
                     .child(
-                        div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child("KASEER CLOUD"),
+                        super::section_title(cx, "KASEER CLOUD"),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(format!(
                                 "{pending} sales pending sync · device token stays on this device",
                             ))),
@@ -1181,8 +1144,8 @@ impl SettingsScreen {
             .when_some(update_pending, |panel, version| {
                 panel.child(
                     div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_size(metrics::FONT_EMPHASIS)
+                        .font_weight(FontWeight::MEDIUM)
                         .child(SharedString::from(format!(
                             "Update {version} installed: restart to apply."
                         ))),
@@ -1197,8 +1160,8 @@ impl SettingsScreen {
                 panel
                     .child(
                         div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(metrics::FONT_EMPHASIS)
+                            .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from(format!(
                                 "Enrolled as {}",
                                 identity.name,
@@ -1206,8 +1169,9 @@ impl SettingsScreen {
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(format!(
                                 "Store {} · kiosk {} · last heartbeat {} · menu from cloud",
                                 identity.store_id, identity.kiosk_id, heartbeat,
@@ -1222,8 +1186,8 @@ impl SettingsScreen {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .text_color(crate::theme::text_dim())
                                     .child(SharedString::from(
                                         self.enroll_message
                                             .clone()
@@ -1236,6 +1200,8 @@ impl SettingsScreen {
                             .child(
                                 Button::new("kiosk-revoke")
                                     .label("Revoke")
+                                    .secondary()
+                                    .small()
                                     .disabled(self.enroll_in_flight)
                                     .on_click(cx.listener(|this, _, _, cx| this.revoke_now(cx))),
                             ),
@@ -1245,8 +1211,8 @@ impl SettingsScreen {
                 panel
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(
                                 "Connect to Kaseer Cloud: create a kiosk on the cloud console, then enter its 6-digit pairing code here.",
                             )),
@@ -1264,7 +1230,7 @@ impl SettingsScreen {
                                     .gap_1()
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(metrics::FONT_FOOTNOTE)
                                             .text_color(cx.theme().muted_foreground)
                                             .child("Cloud URL"),
                                     )
@@ -1276,7 +1242,7 @@ impl SettingsScreen {
                                     .gap_1()
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(metrics::FONT_FOOTNOTE)
                                             .text_color(cx.theme().muted_foreground)
                                             .child("Pairing code"),
                                     )
@@ -1292,12 +1258,12 @@ impl SettingsScreen {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(metrics::FONT_FOOTNOTE)
                                     .text_color(
                                         if self.enroll_message.as_deref().is_some_and(|m| m.starts_with("Enroll failed")) {
                                             cx.theme().danger
                                         } else {
-                                            cx.theme().muted_foreground
+                                            crate::theme::text_dim()
                                         },
                                     )
                                     .child(SharedString::from(
@@ -1318,7 +1284,8 @@ impl SettingsScreen {
                                     } else {
                                         "Enroll kiosk"
                                     })
-                                    .primary()
+                                    .secondary()
+                                    .small()
                                     .disabled(self.enroll_in_flight || self.outbox.is_none())
                                     .on_click(cx.listener(|this, _, _, cx| this.enroll_now(cx))),
                             ),
@@ -1326,8 +1293,9 @@ impl SettingsScreen {
             })
             .child(
                 div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
+                    .font_family(crate::theme::FONT_MONO)
+                    .text_size(metrics::FONT_FOOTNOTE)
+                    .text_color(crate::theme::text_dim())
                     .border_t_1()
                     .border_color(cx.theme().border)
                     .pt_2()
@@ -1347,20 +1315,32 @@ impl SettingsScreen {
                 .child(
                     TableHeader::new().child(
                         TableRow::new()
-                            .child(TableHead::new().text_size(px(11.)).child("NAME"))
-                            .child(TableHead::new().text_size(px(11.)).child("RATE %"))
-                            .child(TableHead::new().text_size(px(11.)).child("TYPE")),
+                            .child(TableHead::new()
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("NAME"))
+                            .child(TableHead::new()
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("RATE %"))
+                            .child(TableHead::new()
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("TYPE")),
                     ),
                 )
                 .child(TableBody::new().children(rows))
                 .into_any_element(),
             Some(Ok(false)) => div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
+                .text_size(metrics::FONT_FOOTNOTE)
+                .text_color(crate::theme::text_dim())
                 .child(SharedString::from("No tax rates configured."))
                 .into_any_element(),
             Some(Err(e)) => div()
-                .text_sm()
+                .text_size(metrics::FONT_FOOTNOTE)
                 .text_color(cx.theme().danger)
                 .child(SharedString::from(e.to_string()))
                 .into_any_element(),

@@ -12,7 +12,8 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Root, Sizable as _};
-use crate::theme::FONT_MONO;
+use crate::theme::{FONT_MONO, metrics};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
@@ -245,13 +246,13 @@ impl AppShell {
 
     fn render_nav(&self, cx: &Context<Self>) -> impl IntoElement {
         let active = self.active;
-        // The web `.rail`: a 76px strip, items 64px wide with the icon
-        // stacked over a 10.5px label; the active item sits on surface-2 in
-        // accent. The K-mark heads the rail: the brand's one mark, drawn
-        // from the site's own SVG so the gradient matches.
+        // Atur's sidebar: a narrow rail-coloured strip, muted icon + label
+        // items, the selected one on a surface in full text colour. The
+        // function keys live in the key bar, so the rail stays quiet. The
+        // flat K-mark heads it.
         v_flex()
             .id("nav-rail")
-            .w(px(76.))
+            .w(px(68.))
             .h_full()
             .flex_shrink_0()
             .items_center()
@@ -262,57 +263,52 @@ impl AppShell {
             .border_color(cx.theme().sidebar_border)
             .child(
                 img(crate::theme::KMARK_PATH)
-                    .size(px(30.))
+                    .size(px(20.))
                     .flex_none()
-                    .mt(px(4.))
-                    .mb(px(12.)),
+                    .mt(px(2.))
+                    .mb(px(14.)),
             )
             .children(NAV_ITEMS.iter().map(|item| {
                 let item = *item;
                 let selected = item == active;
+                let theme = cx.theme();
                 let (fg, bg) = if selected {
-                    (
-                        cx.theme().sidebar_accent_foreground,
-                        cx.theme().sidebar_accent,
-                    )
+                    (theme.sidebar_accent_foreground, theme.sidebar_accent)
                 } else {
-                    (cx.theme().sidebar_foreground, gpui_kit::transparent_black())
+                    (theme.sidebar_foreground, gpui_kit::transparent_black())
                 };
+                let (hover_fg, hover_bg) = (theme.foreground, theme.secondary);
                 v_flex()
                     .id(SharedString::from(format!(
                         "nav-{}",
                         item.label().to_lowercase()
                     )))
                     .cursor_pointer()
-                    .w(px(64.))
-                    .pt(px(8.))
-                    .pb(px(6.))
+                    .w(px(60.))
+                    .py(px(7.))
                     .items_center()
-                    .gap(px(2.))
-                    .rounded(px(10.))
+                    .gap(px(4.))
+                    .rounded(metrics::RADIUS_MD)
                     .bg(bg)
+                    .when(selected, |item| item.border_1().border_color(theme.border))
                     .text_color(fg)
-                    .hover(|style| {
+                    .hover(move |style| {
                         if selected {
                             style
                         } else {
-                            style.text_color(cx.theme().foreground)
+                            style.text_color(hover_fg).bg(hover_bg)
                         }
                     })
                     .on_click(cx.listener(move |shell, _, window, cx| {
                         shell.navigate(item, window, cx);
                     }))
-                    .child(Icon::new(item.icon()).with_size(px(17.)).text_color(fg))
-                    .child(div().text_size(px(10.5)).child(item.label()))
-                    // Key caps share the key bar's mono face. 0.45 opacity
-                    // put the inactive caption near 2.5:1 on the rail;
-                    // 0.8 keeps it quieter than the label and legible.
+                    .child(Icon::new(item.icon()).with_size(px(16.)).text_color(fg))
                     .child(
                         div()
-                            .font_family(FONT_MONO)
-                            .text_size(px(9.))
-                            .opacity(if selected { 1.0 } else { 0.8 })
-                            .child(item.fkey()),
+                            .text_size(metrics::FONT_CAPTION)
+                            .whitespace_nowrap()
+                            .when(selected, |label| label.font_weight(FontWeight::MEDIUM))
+                            .child(item.label()),
                     )
             }))
     }
@@ -350,88 +346,74 @@ impl AppShell {
         self.navigate(next, window, cx);
     }
 
-    /// The web `.keybar`: full-width shortcut strip along the bottom edge.
-    /// Every binding is clickable and mirrors the global keymap, so the
-    /// keyboard map is discoverable without docs.
+    /// Atur's status bar: a 28px rail-coloured strip of mono key caps and
+    /// labels. Every binding is clickable and mirrors the global keymap, so
+    /// the keyboard map is discoverable without docs.
     fn render_key_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let active = self.active;
+        let theme = cx.theme().clone();
+        let hover_bg = theme.secondary;
         let caps = NAV_ITEMS.iter().map(|item| {
             let item = *item;
             let selected = item == active;
-            let key_fg = if selected {
-                cx.theme().sidebar_accent_foreground
-            } else {
-                cx.theme().foreground
-            };
-            let label_fg = if selected {
-                cx.theme().sidebar_accent_foreground
-            } else {
-                cx.theme().sidebar_foreground
-            };
             h_flex()
                 .id(SharedString::from(format!("key-{}", item.label().to_lowercase())))
                 .cursor_pointer()
-                .gap(px(5.))
+                .h(px(20.))
+                .gap(px(6.))
                 .items_center()
-                .pl(px(7.))
-                .pr(px(7.))
-                .pt(px(3.))
-                .pb(px(3.))
-                .rounded(px(6.))
-                .border_1()
-                .border_color(if selected {
-                    cx.theme().sidebar_accent_foreground
-                } else {
-                    cx.theme().border
-                })
-                .hover(|style| style.bg(cx.theme().sidebar_accent))
+                .px(px(6.))
+                .rounded(metrics::RADIUS_SM)
+                .when(selected, |cap| cap.bg(theme.secondary))
+                .hover(move |style| style.bg(hover_bg))
                 .on_click(cx.listener(move |shell, _, window, cx| {
                     shell.navigate(item, window, cx);
                 }))
                 .child(
-                    div()
-                        .font_family(FONT_MONO)
-                        .text_size(px(9.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(key_fg)
-                        .child(item.fkey()),
+                    crate::screens::key_cap(item.fkey())
+                        .text_color(if selected { theme.foreground } else { theme.muted_foreground }),
                 )
                 .child(
                     div()
-                        .text_size(px(10.5))
-                        .text_color(label_fg)
+                        .text_size(metrics::FONT_FOOTNOTE)
+                        .text_color(if selected { theme.foreground } else { theme.muted_foreground })
                         .child(item.label()),
                 )
         });
+        let (accent, accent_fg, accent_hover) =
+            (theme.primary, theme.primary_foreground, theme.primary_hover);
         h_flex()
             .id("key-bar")
             .flex_shrink_0()
+            .h(px(28.))
             .items_center()
-            .gap(px(6.))
-            .pl(px(10.))
-            .pr(px(10.))
-            .pt(px(5.))
-            .pb(px(5.))
-            .bg(cx.theme().sidebar)
+            .gap(px(2.))
+            .px(px(6.))
+            .bg(theme.sidebar)
             .border_t_1()
-            .border_color(cx.theme().sidebar_border)
+            .border_color(theme.sidebar_border)
             .children(caps)
+            .child(
+                div()
+                    .ml_auto()
+                    .mr(px(10.))
+                    .font_family(FONT_MONO)
+                    .text_size(metrics::FONT_CAPTION)
+                    .text_color(crate::theme::text_dim())
+                    .child("Alt+] / Alt+[ cycle"),
+            )
             .child(
                 h_flex()
                     .id("key-pay")
                     .cursor_pointer()
-                    .ml_auto()
-                    .gap(px(5.))
+                    .h(px(20.))
+                    .gap(px(6.))
                     .items_center()
-                    .pl(px(7.))
-                    .pr(px(7.))
-                    .pt(px(3.))
-                    .pb(px(3.))
-                    .rounded(px(6.))
-                    .border_1()
-                    .border_color(cx.theme().accent)
-                    .bg(crate::theme::accent_soft())
-                    .hover(|style| style.bg(cx.theme().accent))
+                    .px(px(8.))
+                    .rounded(metrics::RADIUS_SM)
+                    .bg(accent)
+                    .text_color(accent_fg)
+                    .hover(move |style| style.bg(accent_hover))
                     .on_click(cx.listener(|shell, _, window, cx| {
                         if shell.active == NavItem::Register
                             && let Some(register) = shell.screens.register.as_ref()
@@ -440,26 +422,14 @@ impl AppShell {
                         }
                     }))
                     .child(
-                        div()
-                            .font_family(FONT_MONO)
-                            .text_size(px(9.5))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().sidebar_accent_foreground)
-                            .child("F2"),
+                        crate::screens::key_cap("F2").border_color(accent_fg.opacity(0.25)),
                     )
                     .child(
                         div()
-                            .text_size(px(10.5))
-                            .text_color(cx.theme().sidebar_accent_foreground)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .font_weight(FontWeight::MEDIUM)
                             .child("Pay"),
                     ),
-            )
-            .child(
-                div()
-                    .text_size(px(9.5))
-                    .font_family(FONT_MONO)
-                    .text_color(cx.theme().sidebar_foreground)
-                    .child("Alt+] / Alt+[ cycle"),
             )
     }
 }

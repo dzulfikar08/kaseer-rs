@@ -1,87 +1,101 @@
-//! Kaseer design tokens on the GPUI Kit theme.
+//! Kaseer design tokens on the GPUI Kit theme, in Atur Terminal's design
+//! language.
 //!
 //! This module is the only place where raw palette hex values live. Screens
 //! read semantic roles from `cx.theme()`, never literals (Design Guides,
 //! "Color and themes").
 //!
-//! Canvas mapping (pencil-new.pen, 2026-09-29, the blue redesign board):
-//! - Midnight canvas `#0A0A0F`, rail `#0F1526`, surfaces `#17233B`
-//!   `#1F2C48`, hover `#26355A`
-//! - borders translucent white `#ffffff14` / `#ffffff26`
-//! - text `#F1F5F9`, dim `#94A3B8`, faint `#64748B`
-//! - single Electric Blue accent `#3B82F6` (dim `#2563EB`: focus ring),
-//!   white foreground on accent
-//! - states: danger `#F87171`, ok emerald `#10B981`
-//! - radius 9 buttons/inputs, 12 cards/panels, 14 modals (`radius_lg`)
-//! - Plus Jakarta Sans (UI and money, `tnum`) + IBM Plex Mono (key caps,
-//!   receipt only), embedded via `assets/fonts`, 14px base
+//! Source: atur-terminal `crates/muxy-ui` (the bundled "Atur" scheme, plus
+//! `theme/colors.rs`, `theme/metrics.rs` and `theme/elevation.rs`):
+//! - Neutral monochrome. Canvas `#0c0c0c`, text `#ebebeb`. Every other
+//!   neutral is the text colour at a fixed alpha over the canvas, pre-blended
+//!   here so gpui-kit roles stay opaque: muted text 65%, dim text 40%, raised
+//!   surface 8%, hover 6% on top of a surface, border 12%.
+//! - The accent is light gray (`#e4e4e4`) with black on it. It marks state
+//!   (the active chip, the selected rail item, focus, the primary action)
+//!   and never decorates.
+//! - States come from the scheme's ANSI slots: danger `#e07070` (1), ok
+//!   `#6fbf8a` (2), warning `#d4b062` (3).
+//! - Compact metrics: 12px body, 24px controls, 4/6/8/10px radii
+//!   (`radius_sm`..`radius_xl`), hairline borders, no gradients.
+//! - Inter for the UI (Atur draws the system UI face; a kiosk cannot rely on
+//!   whatever the OS ships, so Inter is embedded) and IBM Plex Mono for key
+//!   caps, metadata and the receipt. Money uses Inter with `tnum`.
 //!
-//! Revenue register (0.2.6):
-//! - Category hues: six muted tones (ochre, clay, sage, teal, lavender,
-//!   dusty rose) that read on navy without competing with the accent. They
-//!   carry information, not decoration: a product tile's 4px left edge and
-//!   the dot on its filter chip share the category's hue, so a cashier finds
-//!   items by colour region. Assigned by category order; a category outside
-//!   the list gets a stable hash of its name. Same values as kaseer-web.
-//! - The deep K gradient (135deg #2563EB, #4F46E5, #7C3AED) is reserved
-//!   for the register's total block, the one place the sale's money and the
-//!   Pay action live. Nothing else in the app may use a gradient. The deep
-//!   stops (not the lighter brand-board ones) keep white text at AA.
-//! - The K-mark SVG lives here too, so brand hex never leaves this file.
+//! Category hues are the one place colour carries information on the
+//! register: a product tile's left edge and its chip's dot share the
+//! category's hue, so a cashier finds items by colour region. They are the
+//! Atur scheme's own ANSI tones, so they sit on the canvas without fighting
+//! the neutral chrome.
 
 use gpui_kit::component::{Colorize as _, Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{App, Hsla, Pixels, px};
 
-const BG: &str = "#0A0A0F";
-const RAIL: &str = "#0F1526";
-const SURFACE: &str = "#17233B";
-const SURFACE_2: &str = "#1F2C48";
-const HOVER: &str = "#26355A";
-const BORDER: &str = "#ffffff14";
-const BORDER_STRONG: &str = "#ffffff26";
-const TEXT: &str = "#F1F5F9";
-const TEXT_DIM: &str = "#94A3B8";
-const TEXT_FAINT: &str = "#64748B";
-const ACCENT: &str = "#3B82F6";
-const ACCENT_DIM: &str = "#2563EB";
-const DANGER: &str = "#F87171";
-const OK: &str = "#10B981";
-/// Gray 900 from the brand board: ink on the white inverse Pay button.
-const NAVY_INK: &str = "#0F172A";
+/// `#0c0c0c`: the Atur canvas.
+const BG: &str = "#0c0c0c";
+/// The rail and key bar: the canvas lifted by 3% so the chrome separates
+/// from the work area without a visible tint.
+const RAIL: &str = "#111111";
+/// `surface` (text at 8% over the canvas): panels, cards, tiles.
+const SURFACE: &str = "#1e1e1e";
+/// `hover` (text at 6%) on top of a surface: hovered rows, nested blocks.
+const SURFACE_2: &str = "#2a2a2a";
+/// `border` (text at 12% over the canvas).
+const BORDER: &str = "#272727";
+/// A border that must read on a surface (inputs, outlined chips).
+const BORDER_STRONG: &str = "#383838";
+const TEXT: &str = "#ebebeb";
+/// `fg_muted` (text at 65%).
+const TEXT_MUTED: &str = "#9d9d9d";
+/// `fg_dim` (text at 40%): captions only, never body copy.
+const TEXT_DIM: &str = "#656565";
+const ACCENT: &str = "#e4e4e4";
+const ACCENT_HOVER: &str = "#f5f5f5";
+/// `contrasting_foreground(accent)`: black on the light accent.
+const ON_ACCENT: &str = "#000000";
+const DANGER: &str = "#e07070";
+const OK: &str = "#6fbf8a";
+const WARNING: &str = "#d4b062";
 
-/// Category hues, in category order (see the module note).
+/// Category hues, in category order (see the module note): ochre, red,
+/// green, cyan, magenta, blue from the Atur scheme's ANSI palette.
 const CATEGORY_HUES: [&str; 6] = [
-    "#D4A657", // ochre
-    "#D98B6A", // clay
-    "#8DB580", // sage
-    "#5FB0BD", // teal
-    "#A895D9", // lavender
-    "#C98AA8", // dusty rose
+    "#d4b062", "#e07070", "#6fbf8a", "#6fb8c4", "#b595c4", "#7d9fd0",
 ];
-
-/// Deep K gradient stops for the total block (135deg).
-const TOTAL_GRADIENT: [&str; 3] = ["#2563EB", "#4F46E5", "#7C3AED"];
-/// The web `.btn.primary`/`.chip.active` foreground: white keeps the
-/// Electric Blue readable.
-const ON_ACCENT: &str = "#ffffff";
 
 /// The app's embedded sans family. Matches the family name baked into the
 /// TTFs under `assets/fonts`, which `install` registers with the text
-/// system; a family set explicitly on the theme is used as-is.
-/// Plus Jakarta Sans (Tokotype, OFL): drawn in Jakarta for the city's
-/// identity, which suits a register built for Indonesian shops; its open
-/// counters read well at tile size.
-pub const FONT_SANS: &str = "Plus Jakarta Sans";
+/// system.
+pub const FONT_SANS: &str = "Inter";
 
 /// Money: the sans with `tnum` (see `tabular`), so amounts line up digit
 /// for digit without reading as code.
 pub const FONT_MONEY: &str = FONT_SANS;
 
-/// Key caps and the receipt preview only: things that are mono in the
-/// physical world (keyboard legends, thermal printer output).
+/// Key caps, metadata and the receipt preview: things that are mono in the
+/// physical world or in Atur's chrome (keyboard legends, thermal printer
+/// output, counters).
 pub const FONT_MONO: &str = "IBM Plex Mono";
 
-/// The web `.receipt`: white paper, near-black ink. Functions because
+/// Atur `Metrics`: the type scale and radii screens size themselves with.
+pub mod metrics {
+    use gpui_kit::{Pixels, px};
+
+    pub const FONT_CAPTION: Pixels = px(10.);
+    pub const FONT_FOOTNOTE: Pixels = px(11.);
+    pub const FONT_BODY: Pixels = px(12.);
+    pub const FONT_EMPHASIS: Pixels = px(13.);
+    pub const FONT_HEADLINE: Pixels = px(14.);
+    pub const FONT_TITLE: Pixels = px(16.);
+    pub const FONT_DISPLAY: Pixels = px(20.);
+
+    pub const RADIUS_SM: Pixels = px(4.);
+    pub const RADIUS_MD: Pixels = px(6.);
+    pub const RADIUS_LG: Pixels = px(8.);
+    pub const RADIUS_XL: Pixels = px(10.);
+}
+
+/// The receipt: white paper, near-black ink. Functions because
 /// `Hsla::parse_hex` is not `const`.
 pub fn receipt_paper() -> Hsla {
     token("#ffffff")
@@ -91,14 +105,12 @@ pub fn receipt_ink() -> Hsla {
     token("#111111")
 }
 
-/// Cards, panels, product tiles: the web `.panel`/`.catcard` 12px radius.
-/// Buttons and inputs stay on `theme.radius` (9px) because gpui-kit reads
-/// the theme radius for both, and the two genuinely differ on the web.
-pub const CARD_RADIUS: Pixels = px(12.);
+/// Cards, panels, product tiles: Atur `radius_lg`. Buttons and inputs use
+/// `theme.radius` (`radius_md`), modals `theme.radius_lg` (`radius_xl`).
+pub const CARD_RADIUS: Pixels = metrics::RADIUS_LG;
 
-/// Web money cells set `font-variant-numeric: tabular-nums`; Plus Jakarta
-/// Sans ships `tnum` (its default digits are proportional), so money must
-/// always carry this.
+/// Inter's default digits are proportional; money must always carry `tnum`
+/// so amounts line up down a column.
 pub fn tabular() -> gpui_kit::FontFeatures {
     gpui_kit::FontFeatures(std::sync::Arc::new(vec![("tnum".to_string(), 1)]))
 }
@@ -107,15 +119,26 @@ fn token(hex: &str) -> Hsla {
     Hsla::parse_hex(hex).expect("valid Kaseer hex token")
 }
 
-/// `--accent-dim`: the hover border on product cards and the focus ring.
-/// Screens read it here because no gpui-kit color role carries it.
+/// The hover border on cards and the focus ring: the strong neutral, so
+/// focus reads without the accent's full weight.
 pub fn accent_dim() -> Hsla {
-    token(ACCENT_DIM)
+    token(TEXT_MUTED)
 }
 
-/// `--accent-soft`: the tinted fill behind active chips and the F2 pay key.
+/// Atur `accent_soft` (accent at 10%): the fill behind active chips and the
+/// F2 pay key.
 pub fn accent_soft() -> Hsla {
-    token("#3B82F626")
+    token(ACCENT).opacity(0.1)
+}
+
+/// A border that reads on a raised surface (outlined chips, key caps).
+pub fn border_strong() -> Hsla {
+    token(BORDER_STRONG)
+}
+
+/// Atur `fg_dim`: captions, counters and key legends.
+pub fn text_dim() -> Hsla {
+    token(TEXT_DIM)
 }
 
 /// A category's identity hue: its position in the catalog's category list,
@@ -135,60 +158,26 @@ fn category_hash(name: &str) -> u32 {
     })
 }
 
-/// The total block's two gradient layers. GPUI gradients take two stops,
-/// so the three-stop K gradient is a base layer (blue to indigo, holding
-/// indigo past the midpoint) under a layer that fades violet in from the
-/// midpoint. Painted as two stacked fills, the result matches the CSS
-/// `linear-gradient(135deg, #2563EB, #4F46E5, #7C3AED)`.
-pub fn total_gradient() -> [gpui_kit::Background; 2] {
-    let [blue, indigo, violet] = TOTAL_GRADIENT.map(token);
-    [
-        gpui_kit::linear_gradient(
-            135.,
-            gpui_kit::linear_color_stop(blue, 0.),
-            gpui_kit::linear_color_stop(indigo, 0.5),
-        ),
-        gpui_kit::linear_gradient(
-            135.,
-            gpui_kit::linear_color_stop(violet.opacity(0.), 0.5),
-            gpui_kit::linear_color_stop(violet, 1.),
-        ),
-    ]
-}
-
-/// The card border (`#ffffff14`) pre-blended over the tile surface. Product
-/// tiles paint their category hue under the border, where a translucent
-/// border would turn the hue's colour; this opaque twin keeps the outline
-/// identical to every other card.
+/// The card border pre-blended over the tile surface. Product tiles paint
+/// their category hue under the border, where a translucent border would
+/// take the hue's colour; this opaque twin keeps the outline identical to
+/// every other card.
 pub fn tile_border() -> Hsla {
-    token("#29344A")
+    token(BORDER_STRONG)
 }
 
-/// Ink on the white inverse button inside the total block.
-pub fn navy_ink() -> Hsla {
-    token(NAVY_INK)
-}
-
-/// White on the gradient: every stop passes AA for normal text (5.2:1 at
-/// the lightest stop).
-pub fn on_gradient() -> Hsla {
-    token(ON_ACCENT)
-}
-
-/// The K-mark (kaseer-site `public/kmark.svg`), served by the app's asset
-/// source at [`KMARK_PATH`]. Rendered as an image so the gradient survives
-/// (an `svg()` element would tint it to one colour). 128px intrinsic size
-/// so the rasterized mark stays crisp at the rail's 30px.
+/// The K-mark, served by the app's asset source at [`KMARK_PATH`]. Drawn in
+/// the Atur accent: the chrome stays monochrome, so the mark does too.
 pub const KMARK_PATH: &str = "brand/kmark.svg";
-pub const KMARK_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128"><defs><linearGradient id="k" x1="8" y1="58" x2="56" y2="6" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8B5CF6"/><stop offset=".52" stop-color="#6366F1"/><stop offset="1" stop-color="#3B82F6"/></linearGradient></defs><path fill="url(#k)" d="M10 6h14v20.8L44.6 6H59L38.2 29.4 59.4 58H44.1L27.6 36.9 24 41.2V58H10Z"/></svg>"##;
+pub const KMARK_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128"><path fill="#e4e4e4" d="M10 6h14v20.8L44.6 6H59L38.2 29.4 59.4 58H44.1L27.6 36.9 24 41.2V58H10Z"/></svg>"##;
 
-/// Load the dark base theme, then repaint every surface role with the web
-/// palette. Call once after `gpui_kit::init`, before opening windows.
+/// Load the dark base theme, then repaint every role with the Atur palette.
+/// Call once after `gpui_kit::init`, before opening windows.
 pub fn install(cx: &mut App) {
     let fonts: Vec<std::borrow::Cow<'static, [u8]>> = vec![
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-Regular.ttf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-Medium.ttf")),
-        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/PlusJakartaSans-SemiBold.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Regular.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Medium.ttf")),
+        std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter-SemiBold.ttf")),
         std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
         std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-SemiBold.ttf")),
     ];
@@ -204,54 +193,75 @@ pub fn install(cx: &mut App) {
         theme.background = token(BG);
         theme.foreground = token(TEXT);
         theme.border = token(BORDER);
-        theme.input = token(BORDER);
-        theme.ring = token(ACCENT_DIM);
-        theme.selection = token(ACCENT).opacity(0.25);
-        theme.overlay = token("#05070a").opacity(0.62);
+        theme.input = token(BORDER_STRONG);
+        theme.ring = token(TEXT_MUTED);
+        // Atur selects with the near-white selection background; at full
+        // strength it would hide the text in an input, so it is softened.
+        theme.selection = token(TEXT).opacity(0.22);
+        theme.overlay = token("#000000").opacity(0.6);
 
-        // Panels and cards: the web `.panel`/`.catcard` surface. Screens
-        // read `theme.secondary` for these, so it carries `--surface`;
-        // the Secondary *button* fill comes from the independent
-        // `button_secondary` tokens below (web `.btn` paints surface-2).
+        // Panels and cards read `theme.secondary` (Atur `surface`).
         theme.secondary = token(SURFACE);
-        theme.secondary_hover = token(SURFACE);
+        theme.secondary_hover = token(SURFACE_2);
         theme.secondary_active = token(SURFACE_2);
         theme.secondary_foreground = token(TEXT);
+        // gpui-kit draws Secondary without a border, so its fill must stand
+        // apart from the panel it sits on: one step above `surface`.
         theme.button_secondary = token(SURFACE_2);
         theme.button_secondary_foreground = token(TEXT);
-        theme.button_secondary_hover = token(SURFACE_2);
-        theme.button_secondary_active = token(SURFACE_2);
+        theme.button_secondary_hover = token("#333333");
+        theme.button_secondary_active = token("#3a3a3a");
         theme.muted = token(SURFACE_2);
-        theme.muted_foreground = token(TEXT_DIM);
+        theme.muted_foreground = token(TEXT_MUTED);
         theme.popover = token(SURFACE);
         theme.popover_foreground = token(TEXT);
+        theme.list_hover = token(SURFACE_2);
+        theme.list_active = token(ACCENT).opacity(0.1);
+        theme.list_active_border = token(BORDER_STRONG);
+        theme.table_hover = token(SURFACE_2);
+        theme.table_active = token(ACCENT).opacity(0.1);
+        theme.table_active_border = token(BORDER_STRONG);
+        // Tables sit inside panels: rows take the panel's surface, the head
+        // a step darker, striping off.
+        theme.table = token(SURFACE);
+        theme.table_even = token(SURFACE);
+        theme.table_foot = token(SURFACE);
+        theme.table_foot_foreground = token(TEXT_MUTED);
+        theme.table_head = token(RAIL);
+        theme.table_head_foreground = token(TEXT_MUTED);
+        theme.table_row_border = token(BORDER);
+        theme.tab_bar = token(RAIL);
+        theme.tab_active = token(SURFACE);
+        theme.tab_active_foreground = token(TEXT);
+        theme.tab_foreground = token(TEXT_MUTED);
+        theme.scrollbar = gpui_kit::transparent_black();
+        theme.scrollbar_thumb = token(TEXT).opacity(0.18);
+        theme.scrollbar_thumb_hover = token(TEXT).opacity(0.3);
 
         theme.primary = token(ACCENT);
         theme.primary_foreground = token(ON_ACCENT);
-        theme.primary_hover = token(ACCENT_DIM);
-        theme.primary_active = token(ACCENT_DIM);
+        theme.primary_hover = token(ACCENT_HOVER);
+        theme.primary_active = token(TEXT_MUTED);
         // `apply_config` only falls back `button_primary` → `primary` while
         // loading a theme config; recoloring the role afterwards does not
-        // revisit it. Button reads `tokens.button_primary`, which is copied
-        // from this role below: leave it unset and the default dark
-        // palette's near-white survives into the Pay button.
+        // revisit it, so the button roles are set explicitly.
         theme.button_primary = token(ACCENT);
         theme.button_primary_foreground = token(ON_ACCENT);
-        theme.button_primary_hover = token(ACCENT_DIM);
-        theme.button_primary_active = token(ACCENT_DIM);
+        theme.button_primary_hover = token(ACCENT_HOVER);
+        theme.button_primary_active = token(TEXT_MUTED);
         theme.accent = token(ACCENT);
         theme.accent_foreground = token(ON_ACCENT);
-        theme.link = token(ACCENT);
-        theme.link_hover = token(ACCENT_DIM);
-        theme.link_active = token(ACCENT_DIM);
+        theme.link = token(TEXT);
+        theme.link_hover = token(ACCENT_HOVER);
+        theme.link_active = token(TEXT_MUTED);
 
-        // The nav rail: web `.rail` paints the strip `--rail` with the
-        // active item on the hover surface in accent.
+        // The nav rail: muted items, the active one on a surface in full
+        // text colour (Atur's sidebar selection).
         theme.sidebar = token(RAIL);
-        theme.sidebar_foreground = token(TEXT_DIM);
+        theme.sidebar_foreground = token(TEXT_MUTED);
         theme.sidebar_border = token(BORDER);
-        theme.sidebar_accent = token(HOVER);
-        theme.sidebar_accent_foreground = token(ACCENT);
+        theme.sidebar_accent = token(SURFACE);
+        theme.sidebar_accent_foreground = token(TEXT);
         theme.sidebar_primary = token(ACCENT);
         theme.sidebar_primary_foreground = token(ON_ACCENT);
 
@@ -259,28 +269,28 @@ pub fn install(cx: &mut App) {
         theme.title_bar_border = token(BORDER);
 
         theme.success = token(OK);
-        theme.success_foreground = token(BG);
+        theme.success_foreground = token(ON_ACCENT);
         theme.success_hover = token(OK).lighten(0.08);
         theme.success_active = token(OK).darken(0.08);
         theme.danger = token(DANGER);
-        theme.danger_foreground = token(BG);
+        theme.danger_foreground = token(ON_ACCENT);
         theme.danger_hover = token(DANGER).lighten(0.08);
         theme.danger_active = token(DANGER).darken(0.08);
-        theme.warning = token(ACCENT);
+        theme.warning = token(WARNING);
         theme.warning_foreground = token(ON_ACCENT);
-        theme.warning_hover = token(ACCENT).lighten(0.08);
-        theme.warning_active = token(ACCENT).darken(0.08);
+        theme.warning_hover = token(WARNING).lighten(0.08);
+        theme.warning_active = token(WARNING).darken(0.08);
+        theme.info = token(TEXT_MUTED);
+        theme.info_foreground = token(ON_ACCENT);
 
-        // theme.css radius: 9px buttons/inputs, 14px modals. Cards and
-        // panels use CARD_RADIUS (12px) at the component layer, chips are
-        // full pills.
-        theme.radius = px(9.);
-        theme.radius_lg = px(14.);
+        theme.radius = metrics::RADIUS_MD;
+        theme.radius_lg = metrics::RADIUS_XL;
+        theme.shadow = true;
 
-        // Plus Jakarta Sans for the app (money via `tnum`); Plex Mono for
-        // key caps and the receipt. Both families are embedded above.
         theme.font_family = FONT_SANS.into();
+        theme.font_size = px(13.);
         theme.mono_font_family = FONT_MONO.into();
+        theme.mono_font_size = px(12.);
 
         // Buttons and other styled components read the stored token
         // projection, not the color roles, so re-project after recoloring.

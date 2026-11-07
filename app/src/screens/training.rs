@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName;
-use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogAction, DialogClose, DialogFooter};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -35,6 +35,8 @@ use kaseer_core::receipt::{Sale, SaleLine, SaleTender, StoreInfo};
 use kaseer_core::repos::{Customer, Product, Repo, Settings};
 use kaseer_core::shift::{Shift, cash_expected_minor};
 use kaseer_core::tax::TaxRate;
+
+use crate::theme::metrics;
 
 use super::register::{
     CustomerItem, PayDialog, PayEvent, ReceiptDialog, ReceiptEvent, customer_items, fmt_money,
@@ -915,9 +917,9 @@ impl TrainingScreen {
                 v_flex()
                     .w_full()
                     .max_w(px(480.))
-                    .gap_4()
-                    .p_8()
-                    .m_6()
+                    .gap(px(12.))
+                    .p(px(16.))
+                    .m(px(16.))
                     .rounded(crate::theme::CARD_RADIUS)
                     .bg(cx.theme().secondary)
                     .border_1()
@@ -928,19 +930,20 @@ impl TrainingScreen {
                             .items_center()
                             .child(
                                 Icon::new(IconName::GraduationCap)
-                                    .with_size(px(22.))
-                                    .text_color(cx.theme().accent),
+                                    .with_size(px(16.))
+                                    .text_color(cx.theme().muted_foreground),
                             )
                             .child(
                                 div()
-                                    .text_xl()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(metrics::FONT_HEADLINE)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .child("Training"),
                             ),
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(metrics::FONT_BODY)
+                            .line_height(px(18.))
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(format!(
                                 "Copies the live ledger to {} and runs {} guided lessons against \
@@ -976,8 +979,8 @@ impl TrainingScreen {
             .w_full()
             .max_w(px(1100.))
             .mx_auto()
-            .p_6()
-            .gap_4()
+            .p(px(16.))
+            .gap(px(12.))
             // The sandbox banner: unmistakable, always first.
             .child(
                 h_flex()
@@ -985,32 +988,35 @@ impl TrainingScreen {
                     .items_center()
                     .px_3()
                     .py_2()
-                    .rounded(px(8.))
+                    .rounded(crate::theme::CARD_RADIUS)
                     .border_1()
-                    .border_color(crate::theme::accent_dim())
-                    .bg(cx.theme().muted)
+                    .border_color(crate::theme::border_strong())
+                    .bg(cx.theme().secondary)
                     .child(
                         Icon::new(IconName::GraduationCap)
-                            .with_size(px(16.))
-                            .text_color(cx.theme().accent),
+                            .with_size(px(14.))
+                            .text_color(cx.theme().foreground),
                     )
                     .child(
                         div()
-                            .text_size(px(12.5))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().accent)
+                            .text_size(metrics::FONT_BODY)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(cx.theme().foreground)
                             .child("TRAINING: sandbox ledger"),
                     )
                     .child(
                         div()
-                            .text_size(px(11.5))
-                            .text_color(cx.theme().muted_foreground)
+                            .min_w_0()
+                            .truncate()
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(sandbox_display_path())),
                     )
                     .child(div().flex_1())
                     .child(
                         Button::new("reset-training")
-                            .outline()
+                            .secondary()
                             .small()
                             .label("Reset training")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -1022,32 +1028,33 @@ impl TrainingScreen {
             .when(all_done, |body| {
                 body.child(
                     v_flex()
-                        .gap_1()
-                        .p(px(14.))
+                        .gap(px(4.))
+                        .p(px(12.))
                         .rounded(crate::theme::CARD_RADIUS)
                         .border_1()
                         .border_color(cx.theme().success)
-                        .bg(cx.theme().muted)
+                        .bg(cx.theme().secondary)
                         .child(
                             h_flex()
                                 .gap_2()
                                 .items_center()
                                 .child(
                                     Icon::new(IconName::CircleCheck)
-                                        .with_size(px(16.))
+                                        .with_size(px(14.))
                                         .text_color(cx.theme().success),
                                 )
                                 .child(
                                     div()
-                                        .text_base()
-                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_size(metrics::FONT_HEADLINE)
+                                        .font_weight(FontWeight::MEDIUM)
                                         .text_color(cx.theme().success)
                                         .child("Training complete: 8/8"),
                                 ),
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(metrics::FONT_BODY)
+                                .line_height(px(18.))
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
                                     "Every lesson landed in the sandbox ledger. \
@@ -1075,49 +1082,42 @@ impl TrainingScreen {
     ) -> impl IntoElement {
         let fraction = completed as f32 / LESSONS.len() as f32;
         v_flex()
-            .gap_1p5()
+            .gap(px(8.))
             .child(
                 h_flex()
                     .justify_between()
                     .items_center()
+                    .child(super::section_title(
+                        cx,
+                        format!("PROGRESS: {} OF {} LESSONS", completed, LESSONS.len()),
+                    ))
                     .child(
                         div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(format!(
-                                "PROGRESS: {} OF {} LESSONS",
-                                completed,
-                                LESSONS.len()
-                            ))),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.5))
-                            .font_features(crate::theme::tabular())
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
                             .text_color(if all_done {
                                 cx.theme().success
                             } else {
-                                cx.theme().muted_foreground
+                                crate::theme::text_dim()
                             })
                             .child(SharedString::from(format!("{completed}/{}", LESSONS.len()))),
                     ),
             )
             .child(
                 div()
-                    .h(px(6.))
+                    .h(px(4.))
                     .w_full()
-                    .rounded(px(3.))
-                    .bg(cx.theme().sidebar_accent)
+                    .rounded(px(999.))
+                    .bg(cx.theme().secondary)
                     .child(
                         h_flex()
                             .h_full()
                             .w_full()
-                            .child(div().h_full().flex_grow(fraction).rounded(px(3.)).bg(
+                            .child(div().h_full().flex_grow(fraction).rounded(px(999.)).bg(
                                 if all_done {
                                     cx.theme().success
                                 } else {
-                                    cx.theme().accent
+                                    cx.theme().muted_foreground
                                 },
                             ))
                             .child(div().h_full().flex_grow(1.0 - fraction)),
@@ -1132,19 +1132,20 @@ impl TrainingScreen {
                     let is_current = *number == self.current_lesson();
                     h_flex()
                         .id(SharedString::from(format!("lesson-chip-{number}")))
-                        .gap_1p5()
+                        .gap(px(6.))
                         .items_center()
-                        .px_2()
-                        .py_1()
+                        .h(px(24.))
+                        .px(px(10.))
                         .rounded(px(999.))
                         .border_1()
                         .border_color(if done {
                             cx.theme().success
                         } else if is_current {
-                            crate::theme::accent_dim()
+                            cx.theme().accent
                         } else {
-                            cx.theme().border
+                            crate::theme::border_strong()
                         })
+                        .when(is_current && !done, |chip| chip.bg(crate::theme::accent_soft()))
                         .child(if done {
                             Icon::new(IconName::CircleCheck)
                                 .with_size(px(12.))
@@ -1152,21 +1153,22 @@ impl TrainingScreen {
                                 .into_any_element()
                         } else {
                             div()
-                                .text_size(px(10.5))
-                                .font_features(crate::theme::tabular())
-                                .text_color(cx.theme().muted_foreground)
+                                .font_family(crate::theme::FONT_MONO)
+                                .text_size(metrics::FONT_CAPTION)
+                                .text_color(crate::theme::text_dim())
                                 .child(SharedString::from(number.to_string()))
                                 .into_any_element()
                         })
                         .child(
                             div()
-                                .text_size(px(11.))
-                                .text_color(if done {
-                                    cx.theme().muted_foreground
-                                } else if is_current {
-                                    cx.theme().accent
-                                } else {
+                                .text_size(metrics::FONT_FOOTNOTE)
+                                .when(is_current && !done, |label| {
+                                    label.font_weight(FontWeight::MEDIUM)
+                                })
+                                .text_color(if is_current && !done {
                                     cx.theme().foreground
+                                } else {
+                                    cx.theme().muted_foreground
                                 })
                                 .child(SharedString::from(*title)),
                         )
@@ -1185,21 +1187,21 @@ impl TrainingScreen {
             (Some(_), Some((number, title, instruction))) => {
                 column = column.child(
                     v_flex()
-                        .gap_2()
-                        .p(px(14.))
+                        .gap(px(8.))
+                        .p(px(12.))
                         .rounded(crate::theme::CARD_RADIUS)
-                        .bg(cx.theme().secondary)
+                        .bg(crate::theme::accent_soft())
                         .border_1()
-                        .border_color(crate::theme::accent_dim())
+                        .border_color(cx.theme().accent)
                         .child(
                             h_flex()
                                 .gap_2()
                                 .items_center()
                                 .child(
                                     div()
-                                        .text_size(px(11.))
-                                        .font_features(crate::theme::tabular())
-                                        .text_color(cx.theme().accent)
+                                        .font_family(crate::theme::FONT_MONO)
+                                        .text_size(metrics::FONT_FOOTNOTE)
+                                        .text_color(crate::theme::text_dim())
                                         .child(SharedString::from(format!(
                                             "LESSON {number} OF {}",
                                             LESSONS.len()
@@ -1207,14 +1209,15 @@ impl TrainingScreen {
                                 )
                                 .child(
                                     div()
-                                        .text_base()
-                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_size(metrics::FONT_HEADLINE)
+                                        .font_weight(FontWeight::MEDIUM)
                                         .child(SharedString::from(title)),
                                 ),
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(metrics::FONT_BODY)
+                                .line_height(px(18.))
                                 .text_color(cx.theme().muted_foreground)
                                 .child(SharedString::from(instruction)),
                         )
@@ -1346,26 +1349,23 @@ impl TrainingScreen {
             .min_h_0()
             .overflow_hidden()
             .gap(px(10.))
-            .p(px(14.))
+            .p(px(12.))
             .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!(
-                        "SANDBOX SALE: {} {}",
-                        session.cart.lines.len(),
-                        if session.cart.lines.len() == 1 { "ITEM" } else { "ITEMS" }
-                    ))),
-            )
+            .child(super::section_title(
+                cx,
+                format!(
+                    "SANDBOX SALE: {} {}",
+                    session.cart.lines.len(),
+                    if session.cart.lines.len() == 1 { "ITEM" } else { "ITEMS" }
+                ),
+            ))
             .when_some(customer, |panel, customer| {
                 panel.child(
                     div()
-                        .text_xs()
+                        .text_size(metrics::FONT_FOOTNOTE)
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(format!(
                             "{}: {} pts",
@@ -1409,12 +1409,12 @@ impl TrainingScreen {
                 .py_6()
                 .child(
                     Icon::new(IconName::Scan)
-                        .with_size(px(26.))
+                        .with_size(px(24.))
                         .text_color(cx.theme().muted_foreground),
                 )
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(metrics::FONT_BODY)
                         .text_color(cx.theme().muted_foreground)
                         .child("Sandbox cart is empty. Scan a SKU to begin."),
                 )
@@ -1433,17 +1433,18 @@ impl TrainingScreen {
                     .child(
                         v_flex()
                             .min_w_0()
-                            .gap_0p5()
+                            .gap(px(2.))
                             .child(
                                 div()
-                                    .text_size(px(13.5))
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(metrics::FONT_EMPHASIS)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .child(SharedString::from(line.name.clone())),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .font_features(crate::theme::tabular())
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(format!(
                                         "{} × {}",
@@ -1474,7 +1475,7 @@ impl TrainingScreen {
                                 super::money_text(fmt_money(gross_minor, session.cur))
                                     .w(px(96.))
                                     .text_right()
-                                    .text_sm(),
+                                    .text_size(metrics::FONT_BODY),
                             )
                             .child(
                                 Button::new(SharedString::from(format!("qty-inc-{}", line.id)))
@@ -1511,7 +1512,7 @@ impl TrainingScreen {
         let row = |label: &str, value: String, color: gpui_kit::Hsla| {
             h_flex()
                 .justify_between()
-                .text_sm()
+                .text_size(metrics::FONT_BODY)
                 .child(
                     div()
                         .text_color(color)
@@ -1534,7 +1535,7 @@ impl TrainingScreen {
                 block.child(row(
                     "Discount",
                     format!("−{}", fmt_money(totals.discount_minor, cur)),
-                    cx.theme().accent,
+                    cx.theme().muted_foreground,
                 ))
             })
             .child(row(
@@ -1545,12 +1546,18 @@ impl TrainingScreen {
             .child(
                 h_flex()
                     .justify_between()
+                    .items_end()
                     .pt_1()
-                    .child(div().text_lg().font_semibold().child("TOTAL"))
+                    .child(
+                        div()
+                            .text_size(metrics::FONT_EMPHASIS)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("TOTAL"),
+                    )
                     .child(
                         super::money_text(fmt_money(totals.total_minor, cur))
-                            .text_lg()
-                            .font_semibold(),
+                            .text_size(metrics::FONT_TITLE)
+                            .font_weight(FontWeight::SEMIBOLD),
                     ),
             )
             .into_any_element()

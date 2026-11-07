@@ -697,7 +697,7 @@ impl RegisterScreen {
             // grid. The fixed-height wrapper pins it to one line.
             .child(
                 div()
-                    .h(px(38.))
+                    .h(px(32.))
                     .flex_shrink_0()
                     .overflow_hidden()
                     .child(Input::new(&self.query).id("search")),
@@ -723,27 +723,27 @@ impl RegisterScreen {
             .id(id)
             .cursor_pointer()
             .flex_none()
-            .h(px(30.))
-            .px(px(12.))
-            .gap(px(7.))
+            .h(px(26.))
+            .px(px(10.))
+            .gap(px(6.))
             .items_center()
             .rounded(px(999.))
             .border_1()
-            .text_size(px(12.5))
+            .text_size(crate::theme::metrics::FONT_BODY)
             .map(|chip| {
                 if active {
                     chip.bg(crate::theme::accent_soft())
                         .border_color(theme.accent)
                         .text_color(theme.foreground)
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .font_weight(FontWeight::MEDIUM)
                 } else {
-                    chip.border_color(theme.border)
+                    chip.border_color(crate::theme::border_strong())
                         .text_color(theme.muted_foreground)
                         .hover(|style| style.border_color(theme.muted_foreground))
                 }
             })
             .when_some(hue, |chip, hue| {
-                chip.child(div().size(px(8.)).flex_none().rounded(px(999.)).bg(hue))
+                chip.child(div().size(px(6.)).flex_none().rounded(px(999.)).bg(hue))
             })
             .child(label)
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -754,10 +754,10 @@ impl RegisterScreen {
 
     fn render_category_chips(&self, cx: &Context<Self>) -> impl IntoElement {
         let mut row = h_flex()
-            .gap(px(8.))
+            .gap(px(6.))
             .flex_none()
             .flex_shrink_0()
-            .h(px(34.))
+            .h(px(28.))
             .overflow_x_scrollbar();
         row = row.child(self.render_category_chip(
             cx,
@@ -801,7 +801,7 @@ impl RegisterScreen {
             .grid()
             .grid_cols(4)
             .content_start()
-            .gap(px(10.))
+            .gap(px(8.))
             .flex_grow(1.)
             .min_h_0()
             .overflow_y_scrollbar();
@@ -859,19 +859,19 @@ impl RegisterScreen {
             .w_full()
             .flex_grow(1.)
             .gap(px(8.))
-            .pt(px(12.))
-            .pb(px(11.))
-            .pl(px(12.))
-            .pr(px(12.))
+            .pt(px(10.))
+            .pb(px(10.))
+            .pl(px(10.))
+            .pr(px(10.))
             // Corner overlays (badge, knowledge button) never sit on the
             // name: reserve their width on the first lines.
-            .when(known || in_cart.is_some(), |body| body.pr(px(34.)))
-            .when(known && in_cart.is_some(), |body| body.pr(px(64.)))
+            .when(known || in_cart.is_some(), |body| body.pr(px(30.)))
+            .when(known && in_cart.is_some(), |body| body.pr(px(56.)))
             .child(
                 div()
-                    .text_size(px(15.))
-                    .line_height(px(20.))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                    .line_height(px(18.))
+                    .font_weight(FontWeight::MEDIUM)
                     // The name is the tile's hero: two lines before the
                     // ellipsis, never shredded at narrow widths.
                     .line_clamp(2)
@@ -887,15 +887,15 @@ impl RegisterScreen {
                         div()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(11.5))
+                            .text_size(crate::theme::metrics::FONT_FOOTNOTE)
                             .text_color(theme.danger)
                             .when_some(low_note, |note, text| note.child(SharedString::from(text))),
                     )
                     .child(
                         super::money_text(fmt_money(product.price_minor, self.currency))
                             .flex_none()
-                            .text_size(px(14.))
-                            .text_color(theme.foreground),
+                            .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                            .text_color(theme.muted_foreground),
                     ),
             );
         // Category edge: the shell is filled with the hue and the surface
@@ -906,7 +906,7 @@ impl RegisterScreen {
         let surface = v_flex()
             .flex_1()
             .min_w_0()
-            .ml(px(4.))
+            .ml(px(3.))
             .bg(theme.secondary)
             .rounded_tr(inner_radius)
             .rounded_br(inner_radius)
@@ -932,9 +932,9 @@ impl RegisterScreen {
                         .justify_center()
                         .rounded_tr(inner_radius)
                         .bg(theme.muted)
-                        .text_size(px(22.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.muted_foreground)
+                        .text_size(crate::theme::metrics::FONT_DISPLAY)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(crate::theme::text_dim())
                         .child(SharedString::from(initials(&product.name))),
                 ),
                 None => surface,
@@ -945,7 +945,7 @@ impl RegisterScreen {
             .size_full()
             .items_stretch()
             .cursor_pointer()
-            .min_h(px(100.))
+            .min_h(px(88.))
             .overflow_hidden()
             .rounded(crate::theme::CARD_RADIUS)
             .bg(hue)
@@ -958,7 +958,7 @@ impl RegisterScreen {
                         .hover(|style| style.border_color(crate::theme::accent_dim()))
                 }
             })
-            .active(|style| style.opacity(0.88))
+            .active(|style| style.opacity(0.85))
             .on_click(cx.listener({
                 let product_id = product.id.clone();
                 move |this, _, window, cx| {
@@ -976,20 +976,19 @@ impl RegisterScreen {
                 .absolute()
                 .top(px(8.))
                 .right(px(8.))
-                .h(px(24.))
-                .min_w(px(24.))
-                .px(px(6.))
+                .h(px(20.))
+                .min_w(px(20.))
+                .px(px(5.))
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded(px(999.))
-                // accent-dim, not accent: white digits need the deeper
-                // blue for AA at 12px (5.2:1 vs 3.7:1).
-                .bg(crate::theme::accent_dim())
+                // Atur's primary: the light accent with black digits.
+                .bg(theme.accent)
                 .text_color(theme.accent_foreground)
                 .font_family(crate::theme::FONT_MONEY)
                 .font_features(crate::theme::tabular())
-                .text_size(px(12.))
+                .text_size(crate::theme::metrics::FONT_FOOTNOTE)
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(SharedString::from(qty_label(qty)))
         });
@@ -1000,7 +999,7 @@ impl RegisterScreen {
             div()
                 .absolute()
                 .top(px(6.))
-                .right(px(if in_cart.is_some() { 38. } else { 6. }))
+                .right(px(if in_cart.is_some() { 32. } else { 6. }))
                 .child(self.render_knowledge_popover(product, cx))
         });
         div()
@@ -1045,10 +1044,10 @@ impl RegisterScreen {
             // height and its scroll hitbox spills over totals/pay.
             .min_h_0()
             .overflow_hidden()
-            .max_w(px(420.))
+            .max_w(px(400.))
             .min_w_0()
-            .gap(px(12.))
-            .p(px(14.))
+            .gap(px(10.))
+            .p(px(12.))
             .rounded(crate::theme::CARD_RADIUS)
             .bg(cx.theme().secondary)
             .border_1()
@@ -1075,10 +1074,10 @@ impl RegisterScreen {
                     .min_w_0()
                     .flex_1()
                     .truncate()
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(crate::theme::metrics::FONT_FOOTNOTE)
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(cx.theme().muted_foreground)
-                    .child("Current sale"),
+                    .child("CURRENT SALE"),
             )
             // Walk-in stays quiet: the attach control is the whole header.
             .child(
@@ -1107,9 +1106,9 @@ impl RegisterScreen {
         v_flex()
             .flex_none()
             .gap(px(4.))
-            .px(px(12.))
-            .py(px(10.))
-            .rounded(px(10.))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(crate::theme::metrics::RADIUS_LG)
             .border_1()
             .map(|block| {
                 if returning {
@@ -1132,8 +1131,8 @@ impl RegisterScreen {
                             .flex_1()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                            .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from(customer.name.clone())),
                     )
                     .child(
@@ -1147,7 +1146,7 @@ impl RegisterScreen {
                 block.child(
                     div()
                         .pl(px(22.))
-                        .text_size(px(12.))
+                        .text_size(crate::theme::metrics::FONT_FOOTNOTE)
                         .text_color(theme.muted_foreground)
                         .child(SharedString::from(meta)),
                 )
@@ -1162,8 +1161,8 @@ impl RegisterScreen {
                         .child(Icon::new(IconName::Hand).with_size(px(14.)).text_color(theme.success))
                         .child(
                             div()
-                                .text_size(px(13.))
-                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_size(crate::theme::metrics::FONT_BODY)
+                                .font_weight(FontWeight::MEDIUM)
                                 .child(SharedString::from(format!("Back after {days} days"))),
                         ),
                 )
@@ -1182,15 +1181,15 @@ impl RegisterScreen {
                 .gap(px(10.))
                 .child(
                     div()
-                        .text_size(px(13.5))
+                        .text_size(crate::theme::metrics::FONT_EMPHASIS)
                         .text_color(cx.theme().muted_foreground)
                         .child("Scan a barcode or tap a product to start."),
                 )
                 .child(
                     h_flex()
                         .gap(px(16.))
-                        .text_size(px(12.))
-                        .text_color(cx.theme().muted_foreground)
+                        .text_size(crate::theme::metrics::FONT_FOOTNOTE)
+                        .text_color(crate::theme::text_dim())
                         .child(key_hint("Enter", "adds a scan", cx.theme().border))
                         .child(key_hint("F2", "takes payment", cx.theme().border)),
                 )
@@ -1221,7 +1220,7 @@ impl RegisterScreen {
         h_flex()
             .justify_between()
             .gap_2()
-            .py(px(8.))
+            .py(px(6.))
             .border_b_1()
             .border_color(cx.theme().border)
             .child(
@@ -1234,7 +1233,7 @@ impl RegisterScreen {
                     .child(
                         div()
                             .mt(px(6.))
-                            .size(px(8.))
+                            .size(px(6.))
                             .flex_none()
                             .rounded(px(999.))
                             .when_some(hue, |dot, hue| dot.bg(hue)),
@@ -1245,8 +1244,8 @@ impl RegisterScreen {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_size(px(14.))
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .child(SharedString::from(line.name.clone())),
                             )
@@ -1256,7 +1255,7 @@ impl RegisterScreen {
                                     fmt_money(line.unit_minor, self.currency),
                                     qty_label(line.qty)
                                 ))
-                                .text_size(px(11.5))
+                                .text_size(crate::theme::metrics::FONT_FOOTNOTE)
                                 .text_color(cx.theme().muted_foreground),
                             ),
                     ),
@@ -1281,9 +1280,9 @@ impl RegisterScreen {
                     // on one line.
                     .child(
                         super::money_text(fmt_money(gross_minor, self.currency))
-                            .w(px(96.))
+                            .w(px(88.))
                             .text_right()
-                            .text_sm(),
+                            .text_size(crate::theme::metrics::FONT_EMPHASIS),
                     )
                     .child(
                         Button::new(SharedString::from(format!("qty-inc-{}", line.id)))
@@ -1348,21 +1347,21 @@ impl RegisterScreen {
         let theme = cx.theme();
         let mut card = v_flex()
             .flex_none()
-            .gap(px(10.))
-            .p(px(12.))
-            .rounded(px(10.))
-            .bg(theme.muted)
+            .gap(px(8.))
+            .p(px(10.))
+            .rounded(crate::theme::metrics::RADIUS_LG)
+            .bg(theme.background)
             .border_1()
             .border_color(theme.border)
             .child(
                 h_flex()
                     .gap(px(8.))
                     .items_center()
-                    .text_size(px(12.5))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(crate::theme::metrics::FONT_FOOTNOTE)
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.muted_foreground)
-                    .child(Icon::new(IconName::Link2).with_size(px(14.)).text_color(theme.muted_foreground))
-                    .child("Often bought with"),
+                    .child(Icon::new(IconName::Link2).with_size(px(12.)).text_color(theme.muted_foreground))
+                    .child("OFTEN BOUGHT WITH"),
             );
         for (product, anchor, support) in suggestions {
             let product_id = product.id.clone();
@@ -1378,22 +1377,23 @@ impl RegisterScreen {
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(11.5))
-                                    .text_color(theme.muted_foreground)
+                                    .text_size(crate::theme::metrics::FONT_FOOTNOTE)
+                                    .text_color(crate::theme::text_dim())
                                     .child(SharedString::from(format!("{support} sales with {anchor}"))),
                             )
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(14.))
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .child(SharedString::from(product.name.clone())),
                             ),
                     )
                     .child(
                         super::money_text(fmt_money(product.price_minor, self.currency))
                             .flex_none()
-                            .text_size(px(13.))
+                            .text_size(crate::theme::metrics::FONT_BODY)
+                            .text_color(theme.muted_foreground)
                             .text_right(),
                     )
                     .child(
@@ -1415,34 +1415,28 @@ impl RegisterScreen {
         card
     }
 
-    /// The total block: the sale's money and its one action, and the only
-    /// gradient in the app. Live (deep K gradient, white type, inverse Pay)
-    /// only when there is something to sell and a shift to sell it in;
-    /// otherwise the same layout on a neutral surface, so nothing jumps
-    /// when the first item lands.
+    /// The total block: the sale's money and its one action. A recessed
+    /// well on the canvas colour inside the cart panel, the same layout
+    /// whether or not the sale is live so nothing jumps when the first item
+    /// lands. Only the Pay action carries the accent (Atur's primary
+    /// control: light gray, black type).
     fn render_total_block(
         &self,
         cx: &Context<Self>,
         totals: &CartTotals,
         amount_size: Pixels,
     ) -> impl IntoElement {
+        use crate::theme::metrics;
         let theme = cx.theme();
         let has_items = !self.cart.lines.is_empty();
         let has_shift = self.active_shift.is_some();
         let live = has_items && has_shift;
-        let (strong, soft, rule) = if live {
-            // Solid white for every line: 86% white fell to 4.2:1 on the
-            // lightest stop. Hierarchy comes from size and weight instead.
-            let white = crate::theme::on_gradient();
-            (white, white, white.opacity(0.22))
-        } else {
-            (theme.foreground, theme.muted_foreground, theme.border)
-        };
+        let (strong, soft) = (theme.foreground, theme.muted_foreground);
         let units: f64 = self.cart.lines.iter().map(|line| line.qty).sum();
         let row = |label: &'static str, value: String| {
             h_flex()
                 .justify_between()
-                .text_size(px(12.5))
+                .text_size(metrics::FONT_BODY)
                 .text_color(soft)
                 .child(label)
                 .child(super::money_text(value).text_right())
@@ -1452,102 +1446,94 @@ impl RegisterScreen {
             (true, false) => Some("Add an item to take payment."),
             (true, true) => None,
         };
-        let layers = crate::theme::total_gradient();
         v_flex()
             .id("total-block")
-            .relative()
             .flex_none()
-            .overflow_hidden()
-            .rounded(px(14.))
-            .map(|block| {
-                if live {
-                    block.child(div().absolute().inset_0().bg(layers[0])).child(
-                        div().absolute().inset_0().bg(layers[1]),
-                    )
-                } else {
-                    block.bg(theme.muted).border_1().border_color(theme.border)
-                }
-            })
+            .gap(px(6.))
+            .p(px(12.))
+            .rounded(metrics::RADIUS_LG)
+            .bg(theme.background)
+            .border_1()
+            .border_color(theme.border)
             .child(
-                v_flex()
-                    .relative()
-                    .gap(px(6.))
-                    .p(px(16.))
+                div()
+                    .font_family(crate::theme::FONT_MONO)
+                    .text_size(metrics::FONT_CAPTION)
+                    .text_color(crate::theme::text_dim())
+                    .child(SharedString::from(plural_units(units).to_uppercase())),
+            )
+            .child(row("Subtotal", fmt_money(totals.gross_minor, self.currency)))
+            .when(totals.discount_minor > 0, |block| {
+                block.child(row(
+                    "Discount",
+                    format!("-{}", fmt_money(totals.discount_minor, self.currency)),
+                ))
+            })
+            .child(row("Tax", fmt_money(totals.tax_minor, self.currency)))
+            .child(div().h(px(1.)).my(px(4.)).bg(theme.border))
+            .child(
+                h_flex()
+                    .justify_between()
+                    .items_end()
+                    .gap_2()
                     .child(
                         div()
-                            .text_size(px(12.5))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .pb(px(6.))
+                            .text_size(metrics::FONT_EMPHASIS)
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(soft)
-                            .child(SharedString::from(plural_units(units))),
+                            .child("Total"),
                     )
-                    .child(row("Subtotal", fmt_money(totals.gross_minor, self.currency)))
-                    .when(totals.discount_minor > 0, |block| {
-                        block.child(row(
-                            "Discount",
-                            format!("-{}", fmt_money(totals.discount_minor, self.currency)),
-                        ))
-                    })
-                    .child(row("Tax", fmt_money(totals.tax_minor, self.currency)))
-                    .child(div().h(px(1.)).my(px(4.)).bg(rule))
                     .child(
-                        h_flex()
-                            .justify_between()
-                            .items_end()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .pb(px(8.))
-                                    .text_size(px(14.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(soft)
-                                    .child("Total"),
-                            )
-                            .child(
-                                super::money_text(fmt_money(totals.total_minor, self.currency))
-                                    .text_right()
-                                    .text_size(amount_size)
-                                    .line_height(amount_size * 1.15)
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(if live || has_items { strong } else { soft }),
-                            ),
-                    )
-                    .when_some(note, |block, note| {
-                        block.child(div().text_size(px(12.)).text_color(soft).child(note))
-                    })
-                    .child(div().pt(px(6.)).child(self.render_total_action(cx, live, has_shift))),
+                        super::money_text(fmt_money(totals.total_minor, self.currency))
+                            .text_right()
+                            .text_size(amount_size)
+                            .line_height(amount_size * 1.15)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(if has_items { strong } else { soft }),
+                    ),
             )
+            .when_some(note, |block, note| {
+                block.child(
+                    div()
+                        .text_size(metrics::FONT_FOOTNOTE)
+                        .text_color(soft)
+                        .child(note),
+                )
+            })
+            .child(div().pt(px(6.)).child(self.render_total_action(cx, live, has_shift)))
     }
 
-    /// The block's one button. Pay (live) and Open shift (no shift) are
-    /// the white inverse button; with a shift but an empty cart it is a
+    /// The block's one button. Pay (live) and Open shift (no shift) are the
+    /// accent-filled primary; with a shift but an empty cart it is a
     /// visibly locked Pay, since there is nothing to charge yet.
     fn render_total_action(&self, cx: &Context<Self>, live: bool, has_shift: bool) -> impl IntoElement {
+        use crate::theme::metrics;
         let theme = cx.theme();
-        let ink = crate::theme::navy_ink();
-        let white = crate::theme::on_gradient();
         let (label, key) = if has_shift { ("Pay", "F2") } else { ("Open shift", "F7") };
         let enabled = live || !has_shift;
         let (fg, key_border) = if enabled {
-            (ink, ink.opacity(0.28))
+            (theme.accent_foreground, theme.accent_foreground.opacity(0.25))
         } else {
-            (theme.muted_foreground, theme.border)
+            (crate::theme::text_dim(), theme.border)
         };
+        let (accent, hover, active) = (theme.primary, theme.primary_hover, theme.primary_active);
         h_flex()
             .id(if has_shift { "pay" } else { "open-shift" })
             .w_full()
-            .h(px(52.))
+            .h(px(44.))
             .gap(px(10.))
             .items_center()
             .justify_center()
-            .rounded(px(10.))
+            .rounded(metrics::RADIUS_MD)
             .text_color(fg)
             .map(|button| {
                 if enabled {
                     button
                         .cursor_pointer()
-                        .bg(white)
-                        .hover(|style| style.bg(white.opacity(0.92)))
-                        .active(|style| style.bg(white.opacity(0.84)))
+                        .bg(accent)
+                        .hover(move |style| style.bg(hover))
+                        .active(move |style| style.bg(active))
                 } else {
                     button.border_1().border_color(theme.border)
                 }
@@ -1560,19 +1546,18 @@ impl RegisterScreen {
             })
             .child(
                 div()
-                    .text_size(px(16.))
+                    .text_size(metrics::FONT_HEADLINE)
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(label),
             )
             .child(
                 div()
-                    .px(px(6.))
-                    .py(px(1.))
-                    .rounded(px(5.))
+                    .px(px(5.))
+                    .rounded(metrics::RADIUS_SM)
                     .border_1()
                     .border_color(key_border)
                     .font_family(crate::theme::FONT_MONO)
-                    .text_size(px(11.))
+                    .text_size(metrics::FONT_CAPTION)
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(key),
             )
@@ -1594,14 +1579,14 @@ impl Render for RegisterScreen {
         // 42px total, 36px when the cart column would fall under 340px
         // (the web breakpoint). The column is 1/2.6 of the screen width
         // after the rail and gutters, capped at 420px.
-        let column = ((f32::from(window.viewport_size().width) - 76. - 42.) / 2.6).min(420.);
-        let amount_size = if column < 340. { px(36.) } else { px(42.) };
+        let column = ((f32::from(window.viewport_size().width) - 68. - 42.) / 2.6).min(400.);
+        let amount_size = if column < 340. { px(28.) } else { px(32.) };
 
         h_flex()
             .size_full()
             .items_stretch()
-            .gap(px(10.))
-            .p_4()
+            .gap(px(12.))
+            .p(px(12.))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_catalog(cx, &products))
@@ -2339,14 +2324,14 @@ fn knowledge_peek_card(product: Product, muted: Hsla, foreground: Hsla) -> impl 
         .gap_1()
         .child(
             div()
-                .text_size(px(12.5))
-                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                .font_weight(FontWeight::MEDIUM)
                 .child(SharedString::from(product.name.clone())),
         )
         .when(!product.description.is_empty(), |card| {
             card.child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(crate::theme::metrics::FONT_BODY)
                     .text_color(foreground)
                     .child(SharedString::from(product.description.clone())),
             )
@@ -2358,14 +2343,14 @@ fn knowledge_peek_card(product: Product, muted: Hsla, foreground: Hsla) -> impl 
                     .mt_1()
                     .child(
                         div()
-                            .text_size(px(10.5))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(crate::theme::metrics::FONT_CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(muted)
                             .child("PREP"),
                     )
                     .child(
                         div()
-                            .text_size(px(12.5))
+                            .text_size(crate::theme::metrics::FONT_BODY)
                             .child(SharedString::from(product.prep_notes.clone())),
                     ),
             )
@@ -2377,14 +2362,14 @@ fn knowledge_peek_card(product: Product, muted: Hsla, foreground: Hsla) -> impl 
                     .mt_1()
                     .child(
                         div()
-                            .text_size(px(10.5))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(crate::theme::metrics::FONT_CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(muted)
                             .child("ALLERGENS"),
                     )
                     .child(
                         div()
-                            .text_size(px(12.5))
+                            .text_size(crate::theme::metrics::FONT_BODY)
                             .child(SharedString::from(product.allergens.clone())),
                     ),
             )
@@ -2422,21 +2407,11 @@ fn days_ago(days: i64) -> String {
 }
 
 /// A key cap plus what the key does, for the empty cart's two hints.
-fn key_hint(key: &'static str, action: &'static str, border: Hsla) -> impl IntoElement {
+fn key_hint(key: &'static str, action: &'static str, _border: Hsla) -> impl IntoElement {
     h_flex()
         .gap(px(6.))
         .items_center()
-        .child(
-            div()
-                .px(px(6.))
-                .py(px(1.))
-                .rounded(px(5.))
-                .border_1()
-                .border_color(border)
-                .font_family(crate::theme::FONT_MONO)
-                .text_size(px(11.))
-                .child(key),
-        )
+        .child(super::key_cap(key))
         .child(action)
 }
 

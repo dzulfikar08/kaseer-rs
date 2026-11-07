@@ -22,6 +22,8 @@ use gpui_kit::{
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div, px,
 };
 use kaseer_core::currency::{Currency, currency_by_code};
+
+use crate::theme::metrics;
 use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::money::{self};
 use kaseer_core::payments::TenderMethod;
@@ -220,22 +222,22 @@ impl ShiftScreen {
                 v_flex()
                     .w_full()
                     .max_w(px(460.))
-                    .gap_4()
-                    .p_8()
-                    .m_6()
+                    .gap(px(12.))
+                    .p(px(16.))
+                    .m(px(12.))
                     .rounded(crate::theme::CARD_RADIUS)
                     .bg(cx.theme().secondary)
                     .border_1()
                     .border_color(cx.theme().border)
                     .child(
                         div()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(metrics::FONT_TITLE)
+                            .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from("Open shift")),
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(metrics::FONT_BODY)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
                                 "Count an opening float into the drawer to start selling.",
@@ -277,8 +279,8 @@ impl ShiftScreen {
             .w_full()
             .max_w(px(940.))
             .mx_auto()
-            .p_6()
-            .gap_4()
+            .p(px(12.))
+            .gap(px(12.))
             .child(
                 // Header row: identity + manual refresh of the live totals.
                 h_flex()
@@ -287,12 +289,14 @@ impl ShiftScreen {
                     .child(
                         h_flex()
                             .gap_2()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .items_baseline()
+                            .text_size(metrics::FONT_TITLE)
+                            .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from("Shift"))
                             .child(
                                 div()
-                                    .text_base()
+                                    .text_size(metrics::FONT_BODY)
+                                    .font_weight(FontWeight::NORMAL)
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(format!(
                                         "opened {opened_date} {opened_time}"
@@ -303,6 +307,7 @@ impl ShiftScreen {
                         Button::new("refresh-shift")
                             .label("Refresh")
                             .icon(IconName::RotateCw)
+                            .ghost()
                             .small()
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let _ = this.reload(cx);
@@ -311,17 +316,17 @@ impl ShiftScreen {
             )
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap(px(8.))
                     .flex_wrap()
-                    .child(self.stat_cell(cx, "Opening float", money_str(summary.shift.opening_float_minor, self.cur), None))
-                    .child(self.stat_cell(cx, "Sales this shift", summary.totals.sales_count.to_string(), None))
-                    .child(self.stat_cell(cx, "Revenue", money_str(summary.totals.total_minor, self.cur), None))
-                    .child(self.stat_cell(cx, "Expected cash", money_str(summary.expected_cash_minor, self.cur), None)),
+                    .child(stat_cell(cx, "Opening float", money_str(summary.shift.opening_float_minor, self.cur)))
+                    .child(stat_cell(cx, "Sales this shift", summary.totals.sales_count.to_string()))
+                    .child(stat_cell(cx, "Revenue", money_str(summary.totals.total_minor, self.cur)))
+                    .child(stat_cell(cx, "Expected cash", money_str(summary.expected_cash_minor, self.cur))),
             )
             .child(
                 h_flex()
                     .items_start()
-                    .gap_3()
+                    .gap(px(8.))
                     .flex_wrap()
                     .child(self.render_sales_summary(cx, summary))
                     .child(self.render_payment_mix(cx, summary)),
@@ -332,7 +337,7 @@ impl ShiftScreen {
                     .justify_between()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(metrics::FONT_FOOTNOTE)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
                                 "Closing counts the drawer against expected cash and archives the shift.",
@@ -349,39 +354,6 @@ impl ShiftScreen {
                     ),
             )
             .into_any_element()
-    }
-
-    fn stat_cell(
-        &self,
-        cx: &Context<Self>,
-        label: &str,
-        value: String,
-        color: Option<gpui_kit::Hsla>,
-    ) -> impl IntoElement {
-        let value_color = color.unwrap_or(cx.theme().foreground);
-        v_flex()
-            .flex_1()
-            .min_w(px(180.))
-            .gap_1()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(label.to_uppercase())),
-            )
-            .child(
-                div()
-                    .text_size(px(22.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .font_features(crate::theme::tabular())
-                    .text_color(value_color)
-                    .child(SharedString::from(value)),
-            )
     }
 
     /// Gross / discount / tax / net, the X-report core.
@@ -401,7 +373,6 @@ impl ShiftScreen {
             )
         };
         panel(cx, "Sales summary")
-            .gap_2()
             .child(row("Gross", money_str(t.gross_minor, cur), false))
             // A minus sign only when something was actually taken off:
             // "\u{2212}Rp 0" reads as a negative amount.
@@ -440,7 +411,7 @@ impl ShiftScreen {
         if mix.is_empty() {
             body = body.child(
                 div()
-                    .text_sm()
+                    .text_size(metrics::FONT_BODY)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from("No payments settled yet.")),
             );
@@ -482,7 +453,7 @@ impl ShiftScreen {
                     DialogFooter::new()
                         .child(
                             DialogClose::new()
-                                .trigger(|button| button.label("Cancel").outline().small()),
+                                .trigger(|button| button.label("Cancel").ghost().small()),
                         )
                         .child(
                             DialogAction::new()
@@ -571,14 +542,11 @@ impl CloseShiftDialog {
     ) -> impl IntoElement {
         let count = Self::count_of(input.read(cx));
         h_flex()
-            .gap_3()
+            .gap(px(8.))
             .child(
-                div()
+                super::money_text(money_str(minor, self.cur))
                     .w_24()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .font_features(crate::theme::tabular())
-                    .child(SharedString::from(money_str(minor, self.cur))),
+                    .text_size(metrics::FONT_BODY),
             )
             .child(
                 Input::new(input)
@@ -587,13 +555,11 @@ impl CloseShiftDialog {
                     .w_full(),
             )
             .child(
-                div()
+                super::money_text(money_str(minor * count, self.cur))
                     .w_24()
                     .text_right()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_features(crate::theme::tabular())
-                    .child(SharedString::from(money_str(minor * count, self.cur))),
+                    .text_size(metrics::FONT_BODY)
+                    .text_color(cx.theme().muted_foreground),
             )
     }
 }
@@ -619,10 +585,10 @@ impl Render for CloseShiftDialog {
         };
 
         v_flex()
-            .gap_3()
+            .gap(px(8.))
             .child(
                 div()
-                    .text_sm()
+                    .text_size(metrics::FONT_BODY)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(format!(
                         "Expected cash in drawer: {}",
@@ -634,6 +600,7 @@ impl Render for CloseShiftDialog {
                     .iter()
                     .map(|(minor, input)| self.render_count_row(cx, *minor, input)),
             )
+            .child(div().h(px(1.)).bg(cx.theme().border))
             .child(ledger_row(
                 cx,
                 "Counted".into(),
@@ -643,19 +610,18 @@ impl Render for CloseShiftDialog {
             .child(
                 h_flex()
                     .justify_between()
+                    .items_center()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(metrics::FONT_BODY)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from("Variance")),
                     )
                     .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .font_features(crate::theme::tabular())
-                            .text_color(variance_color)
-                            .child(SharedString::from(variance_text)),
+                        super::money_text(variance_text)
+                            .text_size(metrics::FONT_HEADLINE)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(variance_color),
                     ),
             )
     }
@@ -663,25 +629,21 @@ impl Render for CloseShiftDialog {
 
 // ── Shared bits ─────────────────────────────────────────────────────────
 
-/// The Kaseer panel motif: surface fill, 1px border, 12px radius, and the
-/// web `.panel h3` kicker for a title.
+/// A KPI tile in the stats row: the shared Atur tile, sized to share the
+/// row with its siblings.
+fn stat_cell(cx: &App, label: &str, value: String) -> Div {
+    super::stat_tile(cx, label.to_string(), value)
+        .flex_1()
+        .min_w(px(180.))
+}
+
+/// The shared Atur panel with a section title, sized to share a row.
 fn panel(cx: &App, title: &str) -> Div {
-    v_flex()
+    super::panel(cx)
         .flex_1()
         .min_w(px(280.))
-        .gap_2()
-        .p(px(14.))
-        .rounded(crate::theme::CARD_RADIUS)
-        .bg(cx.theme().secondary)
-        .border_1()
-        .border_color(cx.theme().border)
-        .child(
-            div()
-                .text_size(px(12.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(title.to_uppercase())),
-        )
+        .gap(px(8.))
+        .child(super::section_title(cx, title.to_string()))
 }
 
 fn ledger_row(
@@ -694,7 +656,7 @@ fn ledger_row(
         .justify_between()
         .child(
             div()
-                .text_sm()
+                .text_size(metrics::FONT_BODY)
                 .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
                 .text_color(if strong {
                     cx.theme().foreground
@@ -705,7 +667,7 @@ fn ledger_row(
         )
         .child(
             super::money_text(value)
-                .text_sm()
+                .text_size(metrics::FONT_BODY)
                 .when(strong, |this| this.font_weight(FontWeight::MEDIUM)),
         )
 }

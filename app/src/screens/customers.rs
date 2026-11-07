@@ -21,6 +21,8 @@ use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::reports::ms_to_iso;
 use kaseer_core::repos::{Customer, Repo};
 
+use crate::theme::metrics;
+
 /// App-wide pointer to the customer the register will sell to.
 ///
 /// Written by this screen's "Sell to" action; read by the Register screen
@@ -214,7 +216,7 @@ impl CustomersScreen {
                 .bg(surface)
                 .child(
                     v_flex()
-                        .gap_3()
+                        .gap(px(12.))
                         .w_96()
                         .child(Field::new().label("Name").child(Input::new(&name)))
                         .child(Field::new().label("Phone").child(Input::new(&phone))),
@@ -269,8 +271,8 @@ impl Render for CustomersScreen {
         div()
             .size_full()
             .v_flex()
-            .p_4()
-            .gap_3()
+            .p(px(12.))
+            .gap(px(12.))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_panel(cx))
@@ -281,23 +283,20 @@ impl CustomersScreen {
     fn render_panel(&self, cx: &Context<Self>) -> impl IntoElement {
         let filtered = self.filtered();
 
-        v_flex()
+        super::panel(cx)
             .flex_1()
             .min_h_0()
-            .gap_3()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+            .gap(px(12.))
             .child(
                 h_flex()
                     .w_full()
                     .justify_between()
                     .flex_wrap()
-                    .gap_2()
-                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
-                        SharedString::from(format!("Customers: {}", filtered.len())),
+                    .items_center()
+                    .gap(px(8.))
+                    .child(super::section_title(
+                        cx,
+                        format!("Customers: {}", filtered.len()),
                     ))
                     .child(
                         h_flex()
@@ -307,6 +306,8 @@ impl CustomersScreen {
                                 Button::new("refresh-customers")
                                     .label("Refresh")
                                     .icon(IconName::RotateCw)
+                                    .ghost()
+                                    .small()
                                     .on_click(
                                         cx.listener(|this, _, window, cx| this.reload(window, cx)),
                                     ),
@@ -316,6 +317,7 @@ impl CustomersScreen {
                                     .label("Add customer")
                                     .icon(IconName::Plus)
                                     .primary()
+                                    .small()
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_add_dialog(window, cx)
                                     })),
@@ -325,7 +327,7 @@ impl CustomersScreen {
             .when_some(self.load_error.clone(), |panel, error| {
                 panel.child(
                     div()
-                        .text_sm()
+                        .text_size(metrics::FONT_BODY)
                         .text_color(cx.theme().danger)
                         .child(SharedString::from(error)),
                 )
@@ -345,7 +347,7 @@ impl CustomersScreen {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_sm()
+                .text_size(metrics::FONT_BODY)
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(message))
                 .into_any_element();
@@ -364,11 +366,13 @@ impl CustomersScreen {
                 let row = TableRow::new()
                     .child(
                         TableCell::new()
-                            .font_medium()
+                            .text_size(metrics::FONT_EMPHASIS)
+                            .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from(customer.name.clone())),
                     )
                     .child(
                         TableCell::new()
+                            .text_size(metrics::FONT_BODY)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(customer.phone.clone())),
                     )
@@ -376,20 +380,19 @@ impl CustomersScreen {
                         TableCell::new().child(
                             h_flex()
                                 .gap_1()
-                                .child(Button::new(dec_id).xsmall().icon(IconName::Minus).on_click(
+                                .child(Button::new(dec_id).xsmall().ghost().icon(IconName::Minus).on_click(
                                     cx.listener(move |this, _, window, cx| {
                                         this.adjust_points(&dec_target, -POINTS_STEP, window, cx)
                                     }),
                                 ))
                                 .child(
-                                    div()
+                                    super::money_text(customer.points.to_string())
                                         .min_w_12()
                                         .text_center()
-                                        .font_medium()
-                                        .font_features(crate::theme::tabular())
-                                        .child(SharedString::from(customer.points.to_string())),
+                                        .text_size(metrics::FONT_BODY)
+                                        .font_weight(FontWeight::MEDIUM),
                                 )
-                                .child(Button::new(inc_id).xsmall().icon(IconName::Plus).on_click(
+                                .child(Button::new(inc_id).xsmall().ghost().icon(IconName::Plus).on_click(
                                     cx.listener(move |this, _, window, cx| {
                                         this.adjust_points(&inc_target, POINTS_STEP, window, cx)
                                     }),
@@ -398,14 +401,16 @@ impl CustomersScreen {
                     )
                     .child(
                         TableCell::new()
-                            .text_color(cx.theme().muted_foreground)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
                             .child(SharedString::from(created_day(&customer.created_at))),
                     );
                 row.child(
                     TableCell::new().child(
                         Button::new(sell_id)
                             .xsmall()
-                            .primary()
+                            .secondary()
                             .label("Sell to")
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.sell_to(sell_customer.clone(), window, cx)
@@ -415,6 +420,14 @@ impl CustomersScreen {
             })
             .collect::<Vec<_>>();
 
+        // Table head: 11px uppercase, muted, weight 500 (Atur table head).
+        let head = |label: &'static str| {
+            TableHead::new()
+                .text_size(metrics::FONT_FOOTNOTE)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().muted_foreground)
+                .child(label)
+        };
         div()
             .min_w_0()
             .overflow_x_scrollbar()
@@ -424,10 +437,10 @@ impl CustomersScreen {
                     .child(
                         TableHeader::new().child(
                             TableRow::new()
-                                .child(TableHead::new().text_size(px(11.)).child("NAME"))
-                                .child(TableHead::new().text_size(px(11.)).child("PHONE"))
-                                .child(TableHead::new().text_size(px(11.)).child("POINTS"))
-                                .child(TableHead::new().text_size(px(11.)).child("CREATED"))
+                                .child(head("NAME"))
+                                .child(head("PHONE"))
+                                .child(head("POINTS"))
+                                .child(head("CREATED"))
                                 .child(TableHead::new()),
                         ),
                     )

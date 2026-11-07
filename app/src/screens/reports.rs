@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::button::Button;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::{Scrollable, ScrollableElement as _};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -28,6 +28,8 @@ use kaseer_core::reports::{
     by_week, payment_mix, summarize, top_products,
 };
 use kaseer_core::repos::Repo;
+
+use crate::theme::metrics;
 use kaseer_core::{db, money};
 
 const DAY_OPTIONS: [i64; 3] = [7, 30, 90];
@@ -117,7 +119,7 @@ impl ReportsScreen {
     fn render_view(&self, cx: &Context<Self>) -> AnyElement {
         let root = div()
             .size_full()
-            .text_sm()
+            .text_size(metrics::FONT_BODY)
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground);
 
@@ -129,8 +131,8 @@ impl ReportsScreen {
             root.child(
                 v_flex()
                     .size_full()
-                    .gap_3()
-                    .p_4()
+                    .gap(px(12.))
+                    .p(px(12.))
                     .child(self.render_header(cx))
                     .child(error_line(cx, &format!("Reports failed: {detail}"))),
             )
@@ -143,8 +145,8 @@ impl ReportsScreen {
     fn render_scroll_body(&self, cx: &Context<Self>) -> Scrollable<Div> {
         v_flex()
             .size_full()
-            .gap_3()
-            .p_4()
+            .gap(px(12.))
+            .p(px(12.))
             .child(self.render_header(cx))
             .children(
                 self.load_error
@@ -161,15 +163,17 @@ impl ReportsScreen {
     fn render_header(&self, cx: &Context<Self>) -> Div {
         h_flex()
             .justify_between()
+            .items_center()
             .child(
                 div()
-                    .text_lg()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(metrics::FONT_TITLE)
+                    .font_weight(FontWeight::MEDIUM)
                     .child(SharedString::from("Reports")),
             )
             .child(
                 h_flex()
-                    .gap_1()
+                    .items_center()
+                    .gap(px(6.))
                     .children(DAY_OPTIONS.map(|days| {
                         super::chip(
                             cx,
@@ -186,6 +190,7 @@ impl ReportsScreen {
                     }))
                     .child(
                         Button::new("refresh")
+                            .ghost()
                             .small()
                             .icon(IconName::RotateCw)
                             .label(if self.loading {
@@ -201,13 +206,13 @@ impl ReportsScreen {
 
     fn render_loaded(&self, d: &ReportsData, cx: &Context<Self>) -> Div {
         v_flex()
-            .gap_3()
+            .gap(px(12.))
             .child(self.render_summary(d, cx))
             .child(self.render_daily_chart(d, cx))
             .child(
                 h_flex()
                     .items_stretch()
-                    .gap_3()
+                    .gap(px(12.))
                     .child(
                         self.panel(cx)
                             .flex_1()
@@ -226,7 +231,7 @@ impl ReportsScreen {
             .child(
                 h_flex()
                     .items_stretch()
-                    .gap_3()
+                    .gap(px(12.))
                     .child(
                         self.panel(cx)
                             .flex_1()
@@ -245,14 +250,10 @@ impl ReportsScreen {
     }
 
     fn render_summary(&self, d: &ReportsData, cx: &Context<Self>) -> Div {
-        h_flex()
+        super::panel(cx)
+            .flex_row()
             .flex_wrap()
-            .gap_4()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+            .gap(px(16.))
             .child(self.stat(cx, "Revenue", self.money(d.summary.total_minor), true))
             .child(self.stat(cx, "Transactions", d.summary.count.to_string(), false))
             .child(self.stat(
@@ -272,10 +273,9 @@ impl ReportsScreen {
             .child(self.section_title(cx, &format!("Daily revenue: last {} days", self.days)))
             .when(max_day > 0, |col| {
                 col.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(format!("PEAK {}", self.money(max_day)))),
+                    super::money_text(format!("PEAK {}", self.money(max_day)))
+                        .text_size(metrics::FONT_CAPTION)
+                        .text_color(crate::theme::text_dim()),
                 )
             });
         panel.child(
@@ -296,8 +296,10 @@ impl ReportsScreen {
         if max <= 0 {
             return empty_state(cx, "No sales in this period.");
         }
-        let accent = cx.theme().accent;
-        let muted = cx.theme().muted_foreground;
+        // Neutral bars: the accent is reserved for state and the primary
+        // action, so the chart reads in the muted foreground.
+        let bar = cx.theme().muted_foreground;
+        let dim = crate::theme::text_dim();
         // Thin the labels so ~12 stay visible no matter the window length.
         let label_step = buckets.len().div_ceil(12).max(1);
         let last = buckets.len().saturating_sub(1);
@@ -317,18 +319,23 @@ impl ReportsScreen {
                     .h_full()
                     .justify_end()
                     .gap_1()
-                    .child(div().h(px(height)).min_w(px(2.)).rounded(px(4.)).bg(
-                        if bucket.total_minor > 0 {
-                            accent
-                        } else {
-                            accent.opacity(0.2)
-                        },
-                    ))
+                    .child(
+                        div()
+                            .h(px(height))
+                            .min_w(px(2.))
+                            .rounded(metrics::RADIUS_SM)
+                            .bg(if bucket.total_minor > 0 {
+                                bar
+                            } else {
+                                bar.opacity(0.2)
+                            }),
+                    )
                     .child(
                         div()
                             .text_center()
-                            .text_size(px(10.))
-                            .text_color(muted)
+                            .font_family(crate::theme::FONT_MONO)
+                            .text_size(metrics::FONT_CAPTION)
+                            .text_color(dim)
                             .truncate()
                             .child(SharedString::from(if show_label {
                                 label_of(&bucket.day)
@@ -391,7 +398,7 @@ impl ReportsScreen {
         // One row per trading hour: the bar answers "when do we sell",
         // the amount stays readable in the ledger column.
         let max = d.by_hour.iter().map(|h| h.total_minor).max().unwrap_or(0).max(1);
-        let accent = cx.theme().accent;
+        let bar = cx.theme().muted_foreground;
         v_flex().gap_1().children(d.by_hour.iter().map(|h| {
             let fraction = (h.total_minor as f32 / max as f32).clamp(0.02, 1.);
             h_flex()
@@ -401,16 +408,17 @@ impl ReportsScreen {
                     super::money_text(format!("{:02}:00", h.hour))
                         .flex_none()
                         .w(rems(3.))
-                        .text_size(px(11.))
-                        .text_color(cx.theme().muted_foreground),
+                        .font_family(crate::theme::FONT_MONO)
+                        .text_size(metrics::FONT_FOOTNOTE)
+                        .text_color(crate::theme::text_dim()),
                 )
                 .child(
                     div().flex_1().min_w_0().h(px(8.)).child(
                         div()
                             .h_full()
                             .w(relative(fraction))
-                            .rounded(px(4.))
-                            .bg(accent),
+                            .rounded(metrics::RADIUS_SM)
+                            .bg(bar),
                     ),
                 )
                 .child(
@@ -418,49 +426,41 @@ impl ReportsScreen {
                         .flex_none()
                         .w(rems(8.))
                         .text_right()
-                        .text_sm(),
+                        .text_size(metrics::FONT_BODY),
                 )
         }))
     }
 
     // ── Shared building blocks ──────────────────────────────────────────
 
-    /// A bordered surface, matching the web screen's `.panel`.
+    /// The shared Atur panel, with the screen's 8px rhythm.
     fn panel(&self, cx: &Context<Self>) -> Div {
-        v_flex()
-            .gap_2()
-            .p(px(14.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
-            .border_color(cx.theme().border)
+        super::panel(cx).gap(px(8.))
     }
 
     fn section_title(&self, cx: &Context<Self>, title: &str) -> Div {
-        kicker(cx, title)
+        super::section_title(cx, title.to_string())
     }
 
-    /// An uppercase 11px label over a 22px tabular value; the web
-    /// `.stat .label` / `.stat .value` treatment.
+    /// A KPI inside the summary panel: the shared tile's caption and 20px
+    /// semibold tabular value, without a tile of its own.
     fn stat(&self, cx: &Context<Self>, label: &str, value: String, is_money: bool) -> Div {
+        let value = div()
+            .text_size(metrics::FONT_DISPLAY)
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(cx.theme().foreground)
+            .whitespace_nowrap()
+            .when(is_money, |value| {
+                value
+                    .font_family(crate::theme::FONT_MONEY)
+                    .font_features(crate::theme::tabular())
+            })
+            .child(SharedString::from(value));
         v_flex()
             .min_w(rems(8.75))
-            .gap_0p5()
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(label.to_uppercase())),
-            )
-            .child(
-                div()
-                    .text_size(px(22.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .when(is_money, |value| {
-                        value.font_features(crate::theme::tabular())
-                    })
-                    .child(SharedString::from(value)),
-            )
+            .gap(px(4.))
+            .child(super::section_title(cx, label.to_string()))
+            .child(value)
     }
 
     fn money(&self, minor: i64) -> String {
@@ -535,26 +535,18 @@ fn iso(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-/// Small uppercase section label, matching the web `.panel h3`.
-fn kicker(cx: &Context<ReportsScreen>, title: &str) -> Div {
-    div()
-        .text_size(px(12.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(cx.theme().muted_foreground)
-        .child(SharedString::from(title.to_uppercase()))
-}
-
 fn empty_state(cx: &Context<ReportsScreen>, text: &str) -> Div {
     div()
-        .p_4()
+        .p(px(12.))
         .text_center()
+        .text_size(metrics::FONT_BODY)
         .text_color(cx.theme().muted_foreground)
         .child(SharedString::from(text.to_string()))
 }
 
 fn error_line(cx: &Context<ReportsScreen>, message: &str) -> Div {
     div()
-        .text_sm()
+        .text_size(metrics::FONT_BODY)
         .text_color(cx.theme().danger)
         .child(SharedString::from(message.to_string()))
 }
@@ -563,23 +555,23 @@ fn error_line(cx: &Context<ReportsScreen>, message: &str) -> Div {
 fn table_row(cx: &Context<ReportsScreen>) -> Div {
     h_flex()
         .w_full()
-        .gap_2()
-        .py_2()
+        .gap(px(8.))
+        .py(px(6.))
         .border_b_1()
         .border_color(cx.theme().border)
 }
 
 fn header_cell(cx: &Context<ReportsScreen>, width: Option<f32>, label: &str) -> Div {
     let base = div()
-        .text_size(px(11.))
-        .font_weight(FontWeight::SEMIBOLD)
+        .text_size(metrics::FONT_FOOTNOTE)
+        .font_weight(FontWeight::MEDIUM)
         .text_color(cx.theme().muted_foreground);
     sized(base, width).child(SharedString::from(label.to_uppercase()))
 }
 
 fn cell(cx: &Context<ReportsScreen>, width: Option<f32>, text: &str, mono: bool) -> Div {
     let base = div()
-        .text_sm()
+        .text_size(metrics::FONT_BODY)
         .text_color(cx.theme().foreground)
         .when(mono, |c| {
             c.font_family(crate::theme::FONT_MONEY)

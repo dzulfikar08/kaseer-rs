@@ -20,6 +20,7 @@ use gpui_kit::{
     Subscription, Window, div, px,
 };
 use kaseer_core::repos::{KnowledgePatch, Product, Repo};
+use crate::theme::metrics;
 
 /// Poison-tolerant lock: a panic in one screen method must not wedge the
 /// screen's data access forever.
@@ -204,8 +205,8 @@ impl KnowledgeScreen {
                     .gap_2()
                     .px_3()
                     .py_2()
-                    .rounded(px(8.))
-                    .when(selected, |row| row.bg(cx.theme().sidebar_accent))
+                    .rounded(metrics::RADIUS_MD)
+                    .when(selected, |row| row.bg(crate::theme::accent_soft()))
                     .hover(|style| style.bg(cx.theme().secondary_active))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.select(id.clone(), window, cx);
@@ -213,7 +214,7 @@ impl KnowledgeScreen {
                     .child(
                         v_flex().min_w_0().child(
                             div()
-                                .text_size(px(13.))
+                                .text_size(metrics::FONT_EMPHASIS)
                                 .font_weight(FontWeight::MEDIUM)
                                 .truncate()
                                 .child(SharedString::from(product.name.clone())),
@@ -225,8 +226,9 @@ impl KnowledgeScreen {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(11.))
-                                    .text_color(cx.theme().muted_foreground)
+                                    .font_family(crate::theme::FONT_MONO)
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .text_color(crate::theme::text_dim())
                                     .child(SharedString::from(product.sku.clone())),
                             )
                             // The kitchen-route mark keeps a fixed slot even
@@ -237,7 +239,7 @@ impl KnowledgeScreen {
                                     slot.child(
                                         Icon::new(IconName::Flame)
                                             .with_size(px(12.))
-                                            .text_color(crate::theme::accent_dim()),
+                                            .text_color(cx.theme().muted_foreground),
                                     )
                                 },
                             )),
@@ -247,9 +249,9 @@ impl KnowledgeScreen {
         if products.is_empty() {
             list = list.child(
                 div()
-                    .p_4()
+                    .p(px(12.))
                     .text_center()
-                    .text_sm()
+                    .text_size(metrics::FONT_BODY)
                     .text_color(cx.theme().muted_foreground)
                     .child("No products match."),
             );
@@ -267,12 +269,12 @@ impl KnowledgeScreen {
                 .gap_2()
                 .child(
                     Icon::new(IconName::BookOpen)
-                        .with_size(px(26.))
+                        .with_size(px(24.))
                         .text_color(cx.theme().muted_foreground),
                 )
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(metrics::FONT_BODY)
                         .text_color(cx.theme().muted_foreground)
                         .child("Select a product to edit its knowledge."),
                 )
@@ -292,8 +294,8 @@ impl KnowledgeScreen {
                 v_flex()
                     .flex_grow(1.)
                     .min_h_0()
-                    .gap_3()
-                    .p(px(14.))
+                    .gap(px(12.))
+                    .p(px(12.))
                     .rounded(crate::theme::CARD_RADIUS)
                     .bg(cx.theme().secondary)
                     .border_1()
@@ -301,17 +303,18 @@ impl KnowledgeScreen {
                     .overflow_y_scrollbar()
                     .child(
                         v_flex()
-                            .gap_0p5()
+                            .gap(px(2.))
                             .child(
                                 div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(metrics::FONT_HEADLINE)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .child(SharedString::from(product.name.clone())),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.))
-                                    .text_color(cx.theme().muted_foreground)
+                                    .font_family(crate::theme::FONT_MONO)
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .text_color(crate::theme::text_dim())
                                     .child(SharedString::from(format!(
                                         "{}: {}",
                                         product.sku, product.category
@@ -355,11 +358,11 @@ impl KnowledgeScreen {
         state: &Entity<InputState>,
     ) -> impl IntoElement {
         v_flex()
-            .gap_1()
+            .gap(px(4.))
             .child(
                 div()
-                    .text_size(px(10.5))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(metrics::FONT_FOOTNOTE)
+                    .font_weight(FontWeight::MEDIUM)
                     .text_color(cx.theme().muted_foreground)
                     .child(SharedString::from(label.to_uppercase())),
             )
@@ -386,8 +389,8 @@ impl Render for KnowledgeScreen {
                 h_flex()
                     .size_full()
                     .items_stretch()
-                    .gap(px(10.))
-                    .p_4()
+                    .gap(px(12.))
+                    .p(px(12.))
                     .child(
                         v_flex()
                             .flex_grow(1.)
