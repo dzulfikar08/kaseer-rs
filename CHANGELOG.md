@@ -9,6 +9,13 @@ All notable changes to Kaseer are listed here. Versions follow [Semantic Version
 - Shift screen sized for touch: a big opening-float field with Rp 50.000 / 100.000 / 500.000
   buttons and an 84px Open shift button; a 64px Close shift button; closing the drawer counts
   each banknote with − / + buttons.
+- Inventory sized for touch: a big search bar (product, SKU or category), 56px All / Low / Out
+  buttons, taller rows with the on-hand count in large type, and the whole row opens the stock
+  dialog. The dialog has three big buttons, Receive, Remove and Count: type or tap the quantity
+  with − / + and quick +1 / +6 / +12 / +24 buttons, and it shows the result ("On hand 40 → 64")
+  before you apply. Count books the difference to what is on the shelf.
+- Customers sized for touch: a big search bar, larger rows with name, phone and join date,
+  52px − / + buttons for points, a big Sell to button, and a roomier Add customer form.
 - Releases also carry fixed-name copies (`Kaseer.dmg`, `Kaseer-Setup-x64.exe`, `Kaseer-x64.zip`,
   `Kaseer-<arch>.AppImage`), so `releases/latest/download/<name>` always serves the newest build.
 

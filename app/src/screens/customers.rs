@@ -1,27 +1,34 @@
 //! Customers screen: search, sell-to, points adjust, and the add-customer
-//! dialog, ported 1:1 from the web `customers.tsx`.
+//! dialog, ported 1:1 from the web `customers.tsx` and sized for a touch
+//! screen: a 60px search bar, 72px rows, 52px − / + points steppers and a
+//! big Sell to button.
 
 use std::sync::Mutex;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{StyledExt as _, h_flex, v_flex};
-use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_kit::component::{
-    ActiveTheme as _, IconName, Sizable as _, button::Button, button::ButtonVariants as _,
-    form::Field, input::Input, input::InputEvent, input::InputState,
+    ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    button::Button,
+    button::ButtonVariants as _,
+    dialog::{DialogAction, DialogClose, DialogFooter},
+    input::Input,
+    input::InputEvent,
+    input::InputState,
 };
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, FontWeight, Global, IntoElement, ParentElement as _,
-    Render, SharedString, Styled as _, Subscription, Window, div, px,
+    App, AppContext as _, Context, Entity, FontWeight, Global, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Window, div, px,
 };
 use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::reports::ms_to_iso;
 use kaseer_core::repos::{Customer, Repo};
 
-use crate::theme::metrics;
+use crate::theme::touch;
 
 /// App-wide pointer to the customer the register will sell to.
 ///
@@ -48,10 +55,10 @@ impl SelectedCustomer {
 
 impl Global for SelectedCustomer {}
 
-/// Points moved by one ± click, matching the web screen.
+/// Points moved by one ± tap, matching the web screen.
 const POINTS_STEP: i64 = 10;
 
-/// The customers panel: search, table, add-customer dialog.
+/// The customers panel: search, list, add-customer dialog.
 pub struct CustomersScreen {
     /// `None` when the database could not be opened; the panel then shows
     /// the reason and every action reports the failure.
@@ -73,8 +80,9 @@ impl CustomersScreen {
         };
 
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search name or phone"));
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Name"));
-        let phone_input = cx.new(|cx| InputState::new(window, cx).placeholder("Phone"));
+        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Customer name"));
+        let phone_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("WhatsApp number, e.g. 0812…"));
 
         let mut this = Self {
             repo,
@@ -98,17 +106,8 @@ impl CustomersScreen {
                 }
             },
         ));
-        for input in [this.name_input.clone(), this.phone_input.clone()] {
-            this._subscriptions.push(cx.subscribe_in(
-                &input,
-                window,
-                |this, _, event, window, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.save_customer(window, cx);
-                    }
-                },
-            ));
-        }
+        // Enter in the add dialog arrives as the dialog's confirm (on_ok),
+        // not as the inputs' PressEnter, so saving hangs off on_ok alone.
 
         this.reload(window, cx);
         this
@@ -172,11 +171,13 @@ impl CustomersScreen {
         Self::toast_ok(window, format!("Selling to {}", customer.name), cx);
     }
 
-    fn save_customer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Saves the add-dialog's customer; true when saved (the dialog then
+    /// closes), false to keep the dialog open after a failure.
+    fn save_customer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let name = self.name_input.read(cx).value().trim().to_string();
         if name.is_empty() {
             Self::toast_error(window, "Name is required", cx);
-            return;
+            return false;
         }
         let phone = self.phone_input.read(cx).value().trim().to_string();
         let customer = Customer {
@@ -189,15 +190,21 @@ impl CustomersScreen {
         let result = self.with_repo(|repo| repo.upsert_customer(&customer));
         match result {
             Some(Ok(_)) => {
-                window.close_dialog(cx);
                 for input in [self.name_input.clone(), self.phone_input.clone()] {
                     input.update(cx, |state, cx| state.set_value("", window, cx));
                 }
                 Self::toast_ok(window, format!("Added {name}"), cx);
                 self.reload(window, cx);
+                true
             }
-            Some(Err(e)) => Self::toast_error(window, format!("Failed to add customer: {e}"), cx),
-            None => Self::toast_error(window, "Database unavailable", cx),
+            Some(Err(e)) => {
+                Self::toast_error(window, format!("Failed to add customer: {e}"), cx);
+                false
+            }
+            None => {
+                Self::toast_error(window, "Database unavailable", cx);
+                false
+            }
         }
     }
 
@@ -208,32 +215,80 @@ impl CustomersScreen {
         let this = cx.entity().downgrade();
         let name = self.name_input.clone();
         let phone = self.phone_input.clone();
-        let surface = cx.theme().popover;
+        let theme = cx.theme();
+        let surface = theme.popover;
+        let field_bg = theme.background;
+        let muted = theme.muted_foreground;
+        // Type the name straight away.
+        let focus = self.name_input.clone();
+        window.defer(cx, move |window, cx| {
+            focus.update(cx, |state, cx| state.focus(window, cx));
+        });
         window.open_dialog(cx, move |dialog, _, _| {
             let this = this.clone();
+            let field = |label: &'static str, input: &Entity<InputState>, id: &'static str| {
+                v_flex()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .text_size(touch::FONT_LABEL)
+                            .text_color(muted)
+                            .child(label),
+                    )
+                    .child(
+                        h_flex()
+                            .h(touch::TAP)
+                            .px(px(16.))
+                            .items_center()
+                            .rounded(touch::RADIUS)
+                            .bg(field_bg)
+                            .border_1()
+                            .border_color(crate::theme::border_strong())
+                            .child(
+                                Input::new(input)
+                                    .id(id)
+                                    .appearance(false)
+                                    .text_size(px(18.)),
+                            ),
+                    )
+            };
             dialog
                 .title("Add customer")
+                .w(px(560.))
                 .bg(surface)
                 .child(
                     v_flex()
-                        .gap(px(12.))
-                        .w_96()
-                        .child(Field::new().label("Name").child(Input::new(&name)))
-                        .child(Field::new().label("Phone").child(Input::new(&phone))),
+                        .gap(px(16.))
+                        .child(field("Name", &name, "customer-name"))
+                        .child(field("Phone", &phone, "customer-phone")),
                 )
-                .when_some(this.upgrade(), |dialog, this| {
-                    dialog.footer(
-                        h_flex().justify_end().gap_2().child(
-                            Button::new("customer-save")
-                                .label("Save customer")
-                                .primary()
-                                .on_click(move |_, window, cx| {
-                                    // A failed validation keeps the dialog
-                                    // open; success closes it from save.
-                                    this.update(cx, |this, cx| this.save_customer(window, cx));
-                                }),
+                .footer(
+                    DialogFooter::new()
+                        .child(DialogClose::new().trigger(|button| {
+                            button
+                                .child(button_text("Cancel"))
+                                .ghost()
+                                .large()
+                                .h(touch::TAP)
+                                .px(px(24.))
+                        }))
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("customer-save")
+                                    .child(button_text("Save customer"))
+                                    .primary()
+                                    .large()
+                                    .h(touch::TAP)
+                                    .px(px(32.)),
+                            ),
                         ),
-                    )
+                )
+                // The Save button and Enter both land here; a failed
+                // validation keeps the dialog open.
+                .on_ok(move |_, window, cx| {
+                    this.upgrade()
+                        .map(|this| this.update(cx, |this, cx| this.save_customer(window, cx)))
+                        .unwrap_or(false)
                 })
         });
     }
@@ -271,182 +326,246 @@ impl Render for CustomersScreen {
         div()
             .size_full()
             .v_flex()
-            .p(px(12.))
-            .gap(px(12.))
+            .p(px(16.))
+            .gap(px(14.))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(self.render_panel(cx))
-    }
-}
-
-impl CustomersScreen {
-    fn render_panel(&self, cx: &Context<Self>) -> impl IntoElement {
-        let filtered = self.filtered();
-
-        super::panel(cx)
-            .flex_1()
-            .min_h_0()
-            .gap(px(12.))
-            .child(
-                h_flex()
-                    .w_full()
-                    .justify_between()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(super::section_title(
-                        cx,
-                        format!("Customers: {}", filtered.len()),
-                    ))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(div().w_56().child(Input::new(&self.search)))
-                            .child(
-                                Button::new("refresh-customers")
-                                    .label("Refresh")
-                                    .icon(IconName::RotateCw)
-                                    .ghost()
-                                    .small()
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| this.reload(window, cx)),
-                                    ),
-                            )
-                            .child(
-                                Button::new("open-add-customer")
-                                    .label("Add customer")
-                                    .icon(IconName::Plus)
-                                    .primary()
-                                    .small()
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_add_dialog(window, cx)
-                                    })),
-                            ),
-                    ),
-            )
-            .when_some(self.load_error.clone(), |panel, error| {
-                panel.child(
+            .child(self.render_toolbar(cx))
+            .when_some(self.load_error.clone(), |screen, error| {
+                screen.child(
                     div()
-                        .text_size(metrics::FONT_BODY)
+                        .text_size(touch::FONT_BODY)
                         .text_color(cx.theme().danger)
                         .child(SharedString::from(error)),
                 )
             })
-            .child(self.render_table(cx, filtered))
+            .child(self.render_list(cx))
+    }
+}
+
+impl CustomersScreen {
+    /// Search bar (the register's scan bar in shape), Refresh, Add customer.
+    fn render_toolbar(&self, cx: &Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        h_flex()
+            .w_full()
+            .gap(px(12.))
+            .items_center()
+            .child(
+                // The input's editor renders size_full; the fixed-height
+                // frame pins it.
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(60.))
+                    .px(px(18.))
+                    .gap(px(14.))
+                    .items_center()
+                    .overflow_hidden()
+                    .rounded(touch::RADIUS)
+                    .bg(theme.background)
+                    .border_1()
+                    .border_color(crate::theme::border_strong())
+                    .child(
+                        Icon::new(IconName::Search)
+                            .with_size(px(22.))
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        Input::new(&self.search)
+                            .id("customer-search")
+                            .appearance(false)
+                            .text_size(px(17.))
+                            .flex_1(),
+                    ),
+            )
+            .child(
+                div()
+                    .id("refresh-customers")
+                    .cursor_pointer()
+                    .size(px(60.))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .rounded(touch::RADIUS)
+                    .bg(theme.secondary)
+                    .border_1()
+                    .border_color(crate::theme::border_strong())
+                    .hover(|style| style.opacity(0.85))
+                    .active(|style| style.opacity(0.7))
+                    .child(
+                        Icon::new(IconName::RotateCw)
+                            .with_size(px(22.))
+                            .text_color(theme.muted_foreground),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| this.reload(window, cx))),
+            )
+            .child(
+                Button::new("open-add-customer")
+                    .child(button_text("Add customer"))
+                    .icon(IconName::Plus)
+                    .primary()
+                    .h(px(60.))
+                    .px(px(24.))
+                    .large()
+                    .on_click(cx.listener(|this, _, window, cx| this.open_add_dialog(window, cx))),
+            )
     }
 
-    fn render_table(&self, cx: &Context<Self>, filtered: Vec<&Customer>) -> impl IntoElement {
-        if filtered.is_empty() {
+    fn render_list(&self, cx: &Context<Self>) -> impl IntoElement {
+        let filtered = self.filtered();
+        let count = filtered.len();
+        let body = if filtered.is_empty() {
             let message = if self.filter.is_empty() {
                 "No customers yet. Add your first regular."
             } else {
                 "No customers match that search."
             };
-            return div()
+            div()
                 .flex_1()
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(metrics::FONT_BODY)
+                .py(px(40.))
+                .text_size(touch::FONT_BODY)
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(message))
-                .into_any_element();
-        }
+                .into_any_element()
+        } else {
+            v_flex()
+                .children(filtered.into_iter().map(|c| self.render_row(cx, c)))
+                .into_any_element()
+        };
 
-        let rows = filtered
-            .into_iter()
-            .map(|c| {
-                let customer = c.clone();
-                let dec_id = format!("dec-points-{}", customer.id);
-                let dec_target = customer.id.clone();
-                let inc_id = format!("inc-points-{}", customer.id);
-                let inc_target = customer.id.clone();
-                let sell_id = format!("sell-to-{}", customer.id);
-                let sell_customer = customer.clone();
-                let row = TableRow::new()
+        super::panel(cx)
+            .flex_1()
+            .min_h_0()
+            .gap(px(4.))
+            .child(
+                h_flex()
+                    .items_center()
+                    .pb(px(8.))
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(super::section_title(cx, format!("Customers: {count}"))),
+            )
+            .child(
+                div()
+                    .id("customer-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(body),
+            )
+    }
+
+    fn render_row(&self, cx: &Context<Self>, customer: &Customer) -> impl IntoElement {
+        let theme = cx.theme();
+        let hover = theme.secondary_hover;
+        let dec_target = customer.id.clone();
+        let inc_target = customer.id.clone();
+        let sell_customer = customer.clone();
+        let step = |id: String, icon: IconName| {
+            div()
+                .id(SharedString::from(id))
+                .cursor_pointer()
+                .size(touch::TAP_SM)
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(10.))
+                .bg(theme.secondary)
+                .border_1()
+                .border_color(crate::theme::border_strong())
+                .hover(move |style| style.bg(hover))
+                .active(|style| style.opacity(0.7))
+                .child(Icon::new(icon).with_size(px(20.)))
+        };
+        let phone = if customer.phone.is_empty() {
+            "No phone".to_string()
+        } else {
+            customer.phone.clone()
+        };
+
+        h_flex()
+            .min_h(px(72.))
+            .items_center()
+            .gap(px(16.))
+            .px(px(10.))
+            .py(px(8.))
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(3.))
                     .child(
-                        TableCell::new()
-                            .text_size(metrics::FONT_EMPHASIS)
-                            .font_weight(FontWeight::MEDIUM)
+                        div()
+                            .text_size(touch::FONT_TILE)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .truncate()
                             .child(SharedString::from(customer.name.clone())),
                     )
                     .child(
-                        TableCell::new()
-                            .text_size(metrics::FONT_BODY)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(customer.phone.clone())),
-                    )
-                    .child(
-                        TableCell::new().child(
-                            h_flex()
-                                .gap_1()
-                                .child(Button::new(dec_id).xsmall().ghost().icon(IconName::Minus).on_click(
-                                    cx.listener(move |this, _, window, cx| {
-                                        this.adjust_points(&dec_target, -POINTS_STEP, window, cx)
-                                    }),
-                                ))
-                                .child(
-                                    super::money_text(customer.points.to_string())
-                                        .min_w_12()
-                                        .text_center()
-                                        .text_size(metrics::FONT_BODY)
-                                        .font_weight(FontWeight::MEDIUM),
-                                )
-                                .child(Button::new(inc_id).xsmall().ghost().icon(IconName::Plus).on_click(
-                                    cx.listener(move |this, _, window, cx| {
-                                        this.adjust_points(&inc_target, POINTS_STEP, window, cx)
-                                    }),
-                                )),
-                        ),
-                    )
-                    .child(
-                        TableCell::new()
-                            .font_family(crate::theme::FONT_MONO)
-                            .text_size(metrics::FONT_FOOTNOTE)
-                            .text_color(crate::theme::text_dim())
-                            .child(SharedString::from(created_day(&customer.created_at))),
-                    );
-                row.child(
-                    TableCell::new().child(
-                        Button::new(sell_id)
-                            .xsmall()
-                            .secondary()
-                            .label("Sell to")
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.sell_to(sell_customer.clone(), window, cx)
-                            })),
+                        h_flex()
+                            .gap(px(12.))
+                            .text_size(touch::FONT_LABEL)
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(phone))
+                            .child(
+                                div()
+                                    .font_family(crate::theme::FONT_MONO)
+                                    .text_size(px(13.))
+                                    .text_color(crate::theme::text_dim())
+                                    .child(SharedString::from(format!(
+                                        "since {}",
+                                        created_day(&customer.created_at)
+                                    ))),
+                            ),
                     ),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        // Table head: 11px uppercase, muted, weight 500 (Atur table head).
-        let head = |label: &'static str| {
-            TableHead::new()
-                .text_size(metrics::FONT_FOOTNOTE)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(label)
-        };
-        div()
-            .min_w_0()
-            .overflow_x_scrollbar()
+            )
             .child(
-                Table::new()
-                    .accessibility_label("Customers")
+                h_flex()
+                    .flex_none()
+                    .gap(px(8.))
+                    .items_center()
                     .child(
-                        TableHeader::new().child(
-                            TableRow::new()
-                                .child(head("NAME"))
-                                .child(head("PHONE"))
-                                .child(head("POINTS"))
-                                .child(head("CREATED"))
-                                .child(TableHead::new()),
+                        step(format!("dec-points-{}", customer.id), IconName::Minus).on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                this.adjust_points(&dec_target, -POINTS_STEP, window, cx)
+                            }),
                         ),
                     )
-                    .child(TableBody::new().children(rows)),
+                    .child(
+                        super::money_text(customer.points.to_string())
+                            .w(px(64.))
+                            .text_center()
+                            .text_size(px(20.))
+                            .font_weight(FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        step(format!("inc-points-{}", customer.id), IconName::Plus).on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                this.adjust_points(&inc_target, POINTS_STEP, window, cx)
+                            }),
+                        ),
+                    ),
             )
-            .into_any_element()
+            .child(
+                Button::new(SharedString::from(format!("sell-to-{}", customer.id)))
+                    .child(button_text("Sell to"))
+                    .icon(IconName::ShoppingCart)
+                    .secondary()
+                    .h(touch::TAP_SM)
+                    .px(px(22.))
+                    .large()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.sell_to(sell_customer.clone(), window, cx)
+                    })),
+            )
     }
 }
 
@@ -454,4 +573,12 @@ impl CustomersScreen {
 /// `createdAt.toLocaleDateString()` display contract.
 fn created_day(created_at: &str) -> String {
     created_at.get(..10).unwrap_or(created_at).to_string()
+}
+
+/// A touch-size button label (Button sizes its own label text by variant).
+fn button_text(text: &'static str) -> gpui_kit::Div {
+    div()
+        .text_size(px(17.))
+        .font_weight(FontWeight::MEDIUM)
+        .child(text)
 }
