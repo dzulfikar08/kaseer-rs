@@ -9,6 +9,8 @@ All notable changes to Kaseer are listed here. Versions follow [Semantic Version
 - Shift screen sized for touch: a big opening-float field with Rp 50.000 / 100.000 / 500.000
   buttons and an 84px Open shift button; a 64px Close shift button; closing the drawer counts
   each banknote with − / + buttons.
+- Releases also carry fixed-name copies (`Kaseer.dmg`, `Kaseer-Setup-x64.exe`, `Kaseer-x64.zip`,
+  `Kaseer-<arch>.AppImage`), so `releases/latest/download/<name>` always serves the newest build.
 
 ## [0.4.0] - 2026-11-17
 

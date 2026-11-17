@@ -7,6 +7,8 @@
 #   Kaseer-Setup-X.Y.Z-x64.exe, Kaseer-X.Y.Z-x64.zip                                   Windows (unsigned)
 #   kaseer-X.Y.Z-{x86_64,aarch64}-linux, kaseer-X.Y.Z-x86_64-windows.exe   raw binaries that
 #     kaseer-cloud (RELEASES_REPO) hands enrolled terminals as their auto-update
+#   Kaseer.dmg, Kaseer-Setup-x64.exe, Kaseer-x64.zip, Kaseer-{x86_64,aarch64}.AppImage   the same
+#     files under fixed names, for releases/latest/download/<name> links (kaseer.site)
 #   SHA256SUMS
 #
 # Dry run (builds every package, uploads workflow artifacts only, no release):
@@ -203,9 +205,16 @@ jobs:
           path: dist
           pattern: release-*
           merge-multiple: true
-      - name: Checksums
+      # Unversioned copies: https://github.com/<repo>/releases/latest/download/<name> always
+      # serves the newest build, so kaseer.site's Download buttons never go stale.
+      - name: Stable names and checksums
         run: |
+          set -euo pipefail
           cd dist
+          cp "Kaseer-${VERSION}.dmg" Kaseer.dmg
+          cp "Kaseer-Setup-${VERSION}-x64.exe" Kaseer-Setup-x64.exe
+          cp "Kaseer-${VERSION}-x64.zip" Kaseer-x64.zip
+          for arch in x86_64 aarch64; do cp "Kaseer-${VERSION}-${arch}.AppImage" "Kaseer-${arch}.AppImage"; done
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
       - name: Create GitHub Release
