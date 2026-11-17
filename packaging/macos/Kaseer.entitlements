@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Developer ID build (scripts/package-macos.sh): hardened runtime, no App Sandbox, so Kaseer
+  needs no entitlements. Plain Rust: GPUI draws with Metal (runtime shader compilation is not
+  CPU JIT), no unsigned executable memory, no third-party dylibs. Network access needs no
+  entitlement outside the sandbox.
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

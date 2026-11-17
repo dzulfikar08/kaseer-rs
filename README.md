@@ -31,9 +31,9 @@ Get the latest build from [Releases](https://github.com/dzulfikar08/kaseer-rs/re
 | macOS 11+ (Apple Silicon and Intel) | `Kaseer-X.Y.Z.dmg` |
 | Linux x86_64 / aarch64 | `Kaseer-X.Y.Z-<arch>.AppImage` or `kaseer-X.Y.Z-<arch>-linux.tar.gz` |
 
-The builds are not code-signed yet. On Windows, if SmartScreen stops the installer, choose
-**More info**, then **Run anyway**. On macOS, right-click Kaseer.app and choose **Open** the first
-time. Linux builds need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or later).
+The macOS build is signed with a Developer ID and notarised by Apple. The Windows build is not
+code-signed yet: if SmartScreen stops the installer, choose **More info**, then **Run anyway**.
+Linux builds need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or later).
 
 Verify downloads with `sha256sum -c SHA256SUMS --ignore-missing`.
 
