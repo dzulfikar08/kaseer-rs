@@ -504,6 +504,11 @@ impl RegisterScreen {
     // ── Pay flow ──────────────────────────────────────────────────────────
 
     pub fn open_pay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Same lock as the Pay button: F2 must not open an empty or
+        // shift-less payment.
+        if self.cart.lines.is_empty() || self.active_shift.is_none() {
+            return;
+        }
         let total_minor = self.totals().total_minor;
         let customer = self.attached_customer().map(|c| CustomerSnapshot {
             id: c.id,

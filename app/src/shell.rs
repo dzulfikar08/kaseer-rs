@@ -4,18 +4,16 @@
 //! State ownership follows the coding guide: the shell owns one entity per
 //! screen, constructed lazily on first visit and retained for the window's
 //! lifetime (a screen's ledger connection, inputs, and subscriptions must
-//! survive navigation). Overlay mounting lives here, exactly once per
-//! window: gpui-kit 0.6.6's `Root::render` does not mount the dialog,
-//! sheet, and notification layers, and duplicate mounts would paint every
-//! dialog twice.
+//! survive navigation). Dialogs, sheets and notifications are mounted by
+//! `Root` itself (gpui-kit 0.9 root plugins), not by the shell.
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::{ActiveTheme as _, Icon, Root, Sizable as _};
+use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _};
 use crate::theme::{FONT_MONO, metrics};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    actions, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
+    actions, AnyElement, AppContext as _, Context, Entity, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
@@ -477,26 +475,6 @@ impl Render for AppShell {
                     ),
             )
             .child(self.render_key_bar(cx))
-            // The window's single overlay mount: dialogs, sheets, and
-            // notifications for every screen. Exactly one view per window
-            // may call this (gpui-kit 0.6.6 mounts layers through the
-            // content view; `Root::render` does not).
-            .children(overlay_layers(window, cx))
     }
 
-}
-
-/// The dialog, sheet, and notification overlay layers, which the window's
-/// content view must render itself: `Root::render` does not mount them
-/// (gpui-kit 0.6.6). Exactly one view per window calls this; duplicate
-/// calls would paint every dialog twice.
-fn overlay_layers(window: &mut Window, cx: &mut App) -> Vec<AnyElement> {
-    [
-        Root::render_dialog_layer(window, cx).map(|layer| layer.into_any_element()),
-        Root::render_sheet_layer(window, cx).map(|layer| layer.into_any_element()),
-        Root::render_notification_layer(window, cx).map(|layer| layer.into_any_element()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
 }

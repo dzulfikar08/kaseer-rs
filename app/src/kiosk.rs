@@ -28,10 +28,9 @@ use kaseer_core::db::{open_repo, resolve_db_path};
 use kaseer_core::sync::{self, Outbox};
 use sha2::{Digest, Sha256};
 
-/// The production worker; `KASEER_CLOUD_URL` overrides it. Kept editable
-/// in Settings so a deployment move never needs a rebuild. Confirmed with
-/// the cloud crew on 2026-09-28.
-pub const DEFAULT_CLOUD_URL: &str = "https://kaseer-cloud.dzulfikar-at.workers.dev";
+/// The hosted cloud; `KASEER_CLOUD_URL` overrides it, and Settings keeps it
+/// editable so a deployment move never needs a rebuild.
+pub use kaseer_core::sync::DEFAULT_CLOUD_URL;
 
 /// Heartbeat cadence: the cloud's console freshness picture.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5 * 60);

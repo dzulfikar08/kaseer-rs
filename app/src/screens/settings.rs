@@ -182,7 +182,7 @@ impl SettingsScreen {
             .as_ref()
             .and_then(|o| o.meta_get("store_token"))
             .unwrap_or_default();
-        let cloud_url = text_input(window, cx, &cloud_url_value, sync::PLACEHOLDER_CLOUD_URL);
+        let cloud_url = text_input(window, cx, &cloud_url_value, sync::DEFAULT_CLOUD_URL);
         let cloud_token = text_input(window, cx, &cloud_token_value, "Store token");
         let menu_url_value = outbox
             .as_ref()
@@ -224,7 +224,7 @@ impl SettingsScreen {
                 window,
                 cx,
                 &crate::kiosk::default_enroll_url(),
-                "https://kaseer-cloud…",
+                sync::DEFAULT_CLOUD_URL,
             ),
             pairing_code,
             enroll_in_flight: false,

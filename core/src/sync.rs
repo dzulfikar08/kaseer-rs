@@ -31,8 +31,9 @@ use crate::repos::{Customer, Product, Repo};
 /// Device-local outbox path; sibling of the default ledger.
 pub const DEFAULT_OUTBOX_PATH: &str = "./data/sync-outbox.db";
 
-/// Placeholder endpoint shown before a store configures its worker URL.
-pub const PLACEHOLDER_CLOUD_URL: &str = "https://kaseer-cloud.<subdomain>.workers.dev";
+/// The hosted Kaseer Cloud. A store running its own cloud sets another URL
+/// in Settings or with `KASEER_CLOUD_URL`.
+pub const DEFAULT_CLOUD_URL: &str = "https://cloud.kaseer.site";
 
 /// Batch size ceiling, matching the cloud's MAX_BATCH_ROWS.
 const BATCH_ROWS: usize = 500;
@@ -48,9 +49,9 @@ pub fn resolve_outbox_path() -> String {
     env::var("KASEER_OUTBOX").unwrap_or_else(|_| DEFAULT_OUTBOX_PATH.to_string())
 }
 
-/// Configured cloud URL (`KASEER_CLOUD_URL`) or the placeholder.
+/// Configured cloud URL (`KASEER_CLOUD_URL`) or the hosted default.
 pub fn default_cloud_url() -> String {
-    env::var("KASEER_CLOUD_URL").unwrap_or_else(|_| PLACEHOLDER_CLOUD_URL.to_string())
+    env::var("KASEER_CLOUD_URL").unwrap_or_else(|_| DEFAULT_CLOUD_URL.to_string())
 }
 
 fn now_iso() -> String {
