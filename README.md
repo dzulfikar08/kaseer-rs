@@ -76,6 +76,12 @@ then tag:
 git tag -a v0.3.0 -m "Kaseer 0.3.0" && git push origin v0.3.0
 ```
 
+Each release also carries the raw binaries (`kaseer-X.Y.Z-<arch>-linux`,
+`kaseer-X.Y.Z-x86_64-windows.exe`). Kaseer Cloud reads the latest release's `SHA256SUMS` and serves
+the matching binary to enrolled terminals as their auto-update, so publishing a release is all it
+takes; no upload step and no credentials. (AppImage and macOS installs update by downloading a new
+release.)
+
 `gh workflow run release.yml --ref main` does a dry run that builds every package without
 publishing.
 

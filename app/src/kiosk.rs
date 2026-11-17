@@ -316,6 +316,10 @@ fn update_targets() -> Result<UpdateTargets, String> {
 /// installed version, or `None` when up to date / deferred (shift open).
 /// Never restarts the process: the swap lands on disk only.
 pub fn check_for_update() -> Result<Option<String>, String> {
+    // An AppImage runs from a read-only mount: it cannot swap itself.
+    if std::env::var_os("APPIMAGE").is_some() {
+        return Ok(None);
+    }
     let outbox = Outbox::open(&sync::resolve_outbox_path()).map_err(|e| e.to_string())?;
     let identity = KioskIdentity::from_outbox(&outbox).ok_or("Not enrolled")?;
     let base = cloud_base(&outbox);

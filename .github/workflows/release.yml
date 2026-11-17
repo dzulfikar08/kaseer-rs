@@ -5,6 +5,8 @@
 #   Kaseer-X.Y.Z-{x86_64,aarch64}.AppImage, kaseer-X.Y.Z-{x86_64,aarch64}-linux.tar.gz   Linux
 #   Kaseer-X.Y.Z.dmg, kaseer-X.Y.Z-universal-macos.tar.gz                              macOS (ad-hoc signed)
 #   Kaseer-Setup-X.Y.Z-x64.exe, Kaseer-X.Y.Z-x64.zip                                   Windows (unsigned)
+#   kaseer-X.Y.Z-{x86_64,aarch64}-linux, kaseer-X.Y.Z-x86_64-windows.exe   raw binaries that
+#     kaseer-cloud (RELEASES_REPO) hands enrolled terminals as their auto-update
 #   SHA256SUMS
 #
 # Dry run (builds every package, uploads workflow artifacts only, no release):
@@ -93,6 +95,8 @@ jobs:
           out="$(target/release/kaseer --version)"; echo "$out"
           [ "$out" = "kaseer ${VERSION}" ] || { echo "::error::--version does not report ${VERSION}"; exit 1; }
       - run: ./scripts/package-linux.sh target/release/kaseer "$VERSION" dist
+      # The raw binary: kaseer-cloud serves it to enrolled terminals as their update.
+      - run: cp target/release/kaseer "dist/kaseer-${VERSION}-${{ matrix.arch }}-linux"
       - name: AppImage runs
         run: |
           out="$("dist/Kaseer-${VERSION}-${{ matrix.arch }}.AppImage" --appimage-extract-and-run --version)"
@@ -157,6 +161,8 @@ jobs:
           cache-on-failure: true
       - run: cargo build --release --locked -p kaseer
       - run: ./scripts/package-windows.sh target/release/kaseer.exe "$VERSION" x64 dist
+      # The raw binary: kaseer-cloud serves it to enrolled terminals as their update.
+      - run: cp target/release/kaseer.exe "dist/kaseer-${VERSION}-x86_64-windows.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows-x64

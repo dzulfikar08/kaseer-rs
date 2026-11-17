@@ -21,7 +21,8 @@ First open-source release, under AGPL-3.0-or-later.
 - Data lives in the per-user data folder (`~/.local/share/kaseer`,
   `~/Library/Application Support/Kaseer`, `%APPDATA%\Kaseer`) unless `./data/kaseer.db` already
   exists or `KASEER_DATA_DIR` is set.
-- Auto-update can replace the running binary on Windows.
+- Auto-update can replace the running binary on Windows, and comes from the latest GitHub release
+  through Kaseer Cloud. AppImages skip self-update.
 
 ### Fixed
 
