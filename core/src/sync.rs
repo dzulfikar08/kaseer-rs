@@ -28,8 +28,6 @@ use serde_json::json;
 use crate::receipt::{Sale, SaleLine, SaleTender};
 use crate::repos::{Customer, Product, Repo};
 
-/// Device-local outbox path; sibling of the default ledger.
-pub const DEFAULT_OUTBOX_PATH: &str = "./data/sync-outbox.db";
 
 /// The hosted Kaseer Cloud. A store running its own cloud sets another URL
 /// in Settings or with `KASEER_CLOUD_URL`.
@@ -46,7 +44,13 @@ const PRUNE_AFTER_DAYS: i64 = 7;
 const EPOCH: &str = "1970-01-01T00:00:00.000Z";
 
 pub fn resolve_outbox_path() -> String {
-    env::var("KASEER_OUTBOX").unwrap_or_else(|_| DEFAULT_OUTBOX_PATH.to_string())
+    // Device-local outbox, beside the ledger.
+    env::var("KASEER_OUTBOX").unwrap_or_else(|_| {
+        crate::db::data_dir()
+            .join("sync-outbox.db")
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 /// Configured cloud URL (`KASEER_CLOUD_URL`) or the hosted default.

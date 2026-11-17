@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Kaseer
+GenericName=Point of Sale
+Comment=Offline-first cashier terminal
+Exec=kaseer
+Icon=kaseer
+Terminal=false
+Categories=Office;Finance;
+StartupWMClass=kaseer

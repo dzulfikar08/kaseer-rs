@@ -1,7 +1,10 @@
 [package]
 name = "kaseer-core"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }

@@ -1,0 +1,3 @@
+// Kaseer's Windows resources (compiled by app/build.rs). GPUI loads the
+// window icon from resource 1.
+1 ICON "kaseer.ico"

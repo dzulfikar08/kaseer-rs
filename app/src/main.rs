@@ -1,6 +1,9 @@
 //! Kaseer application shell: GPUI Kit bootstrap, theme install, and the
 //! first window.
 
+// Release builds on Windows open no console window.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod kiosk;
 mod menu_sync;
 mod screens;
@@ -88,6 +91,10 @@ fn install_panic_hook() {
 }
 
 fn main() {
+    if std::env::args().nth(1).is_some_and(|a| a == "--version" || a == "-V") {
+        println!("kaseer {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     install_panic_hook();
     gpui_kit::application()
         // AppAssets: the full Lucide catalog plus the embedded fonts. The

@@ -3,7 +3,7 @@
 //! numbered via PRAGMA user_version; every step is transactional.
 
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension};
 
@@ -13,10 +13,38 @@ use crate::seed_data::{
     DEFAULT_STORE_NAME, DEFAULT_TAX_RATES, SEED_CATEGORIES, SEED_PRODUCTS,
 };
 
-pub const DEFAULT_DB_PATH: &str = "./data/kaseer.db";
+/// Where the ledger, outbox, photos and training sandbox live:
+/// `KASEER_DATA_DIR`; else `./data` when a ledger already exists there
+/// (terminals installed before 0.3 and `cargo run` from the repo); else
+/// the per-user data folder (`~/.local/share/kaseer`,
+/// `~/Library/Application Support/Kaseer`, `%APPDATA%\Kaseer`).
+pub fn data_dir() -> PathBuf {
+    if let Some(dir) = env::var_os("KASEER_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    let legacy = Path::new("./data");
+    if legacy.join("kaseer.db").exists() {
+        return legacy.to_path_buf();
+    }
+    user_data_dir().unwrap_or_else(|| legacy.to_path_buf())
+}
+
+fn user_data_dir() -> Option<PathBuf> {
+    let var = |name: &str| env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if cfg!(windows) {
+        var("APPDATA").map(|dir| dir.join("Kaseer"))
+    } else if cfg!(target_os = "macos") {
+        var("HOME").map(|home| home.join("Library/Application Support/Kaseer"))
+    } else {
+        var("XDG_DATA_HOME")
+            .or_else(|| var("HOME").map(|home| home.join(".local/share")))
+            .map(|dir| dir.join("kaseer"))
+    }
+}
 
 pub fn resolve_db_path() -> String {
-    env::var("KASEER_DB").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string())
+    env::var("KASEER_DB")
+        .unwrap_or_else(|_| data_dir().join("kaseer.db").to_string_lossy().into_owned())
 }
 
 pub fn open_db(path: &str) -> rusqlite::Result<Connection> {

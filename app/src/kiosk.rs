@@ -16,7 +16,6 @@
 //! banner says so.
 
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -101,6 +100,8 @@ pub fn default_enroll_url() -> String {
 fn device_name() -> String {
     std::fs::read_to_string("/etc/hostname")
         .ok()
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .or_else(|| std::env::var("HOSTNAME").ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "kaseer-terminal".to_string())
@@ -405,10 +406,40 @@ fn install(release: &[u8]) -> Result<(), String> {
         .join("kaseer.new");
     let install = std::fs::copy(&targets.staging, &beside)
         .map(|_| ())
-        .and_then(|_| std::fs::set_permissions(&beside, std::fs::Permissions::from_mode(0o755)))
-        .and_then(|_| std::fs::rename(&beside, &targets.current));
+        .and_then(|_| make_executable(&beside))
+        .and_then(|_| replace_running(&beside, &targets.current));
     let _ = std::fs::remove_file(&targets.staging);
     install.map_err(|e| format!("binary swap: {e}"))
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Unix renames straight over the running binary (the process keeps its
+/// open inode).
+#[cfg(not(windows))]
+fn replace_running(new: &Path, current: &Path) -> std::io::Result<()> {
+    std::fs::rename(new, current)
+}
+
+/// Windows cannot overwrite a running .exe but can rename it: move it to
+/// `kaseer.old` (deleted on the next update) and put the new one in place.
+#[cfg(windows)]
+fn replace_running(new: &Path, current: &Path) -> std::io::Result<()> {
+    let old = current.with_extension("old");
+    let _ = std::fs::remove_file(&old);
+    std::fs::rename(current, &old)?;
+    std::fs::rename(new, current).inspect_err(|_| {
+        let _ = std::fs::rename(&old, current);
+    })
 }
 
 /// Update checks run on a foreground async task; their resumptions can
