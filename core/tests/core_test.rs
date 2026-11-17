@@ -145,6 +145,8 @@ fn fixture_sale() -> Sale {
         points_earned: 10,
         points_redeemed: 0,
         tax_by_rate_id,
+        offer_code: None,
+        addon_offers: vec![],
     }
 }
 

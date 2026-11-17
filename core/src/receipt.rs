@@ -56,6 +56,22 @@ pub struct Sale {
     pub points_earned: i64,
     pub points_redeemed: i64,
     pub tax_by_rate_id: BTreeMap<String, i64>,
+    /// Win-back code redeemed on this sale (0.5+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer_code: Option<String>,
+    /// Add-on suggestions shown while this sale was rung up (0.5+).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addon_offers: Vec<AddonOffer>,
+}
+
+/// One add-on the register offered during a sale, and whether the
+/// customer took it (the partner ended up in the cart).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddonOffer {
+    pub anchor_id: String,
+    pub partner_id: String,
+    pub accepted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

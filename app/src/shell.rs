@@ -38,6 +38,7 @@ actions!(
         NextScreen,
         PrevScreen,
         PayCurrent,
+        EnterCode,
     ]
 );
 
@@ -465,6 +466,13 @@ impl Render for AppShell {
                     && let Some(register) = shell.screens.register.as_ref()
                 {
                     register.update(cx, |r, cx| r.open_pay(window, cx));
+                }
+            }))
+            .on_action(cx.listener(|shell, _: &EnterCode, window, cx| {
+                if shell.active == NavItem::Register
+                    && let Some(register) = shell.screens.register.as_ref()
+                {
+                    register.update(cx, |r, cx| r.open_code(window, cx));
                 }
             }))
             .bg(cx.theme().background)

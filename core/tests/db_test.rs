@@ -47,6 +47,8 @@ fn fixture_sale(number: &str, at: &str, customer_id: Option<&str>, total_minor: 
         points_earned: 2,
         points_redeemed: 0,
         tax_by_rate_id: Default::default(),
+        offer_code: None,
+        addon_offers: vec![],
     }
 }
 
@@ -202,9 +204,9 @@ fn migration_v2_to_v3_preserves_rows_and_seeds_knowledge_and_kitchen_tables() {
     kaseer_core::db::migrate(&conn).unwrap();
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    // migrate() always walks to the latest step (v4 today); this test's
+    // migrate() always walks to the latest step (v5 today); this test's
     // subject is what the v3 step did to these rows on the way.
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
 
     // Both pre-existing rows survive untouched apart from the new columns.
     let (n, non_seeded): (i64, String) = conn
@@ -353,7 +355,7 @@ fn migration_v3_to_v4_preserves_rows_and_adds_image_path() {
         kaseer_core::db::migrate(&conn).unwrap();
 
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
 
         // Both pre-existing rows survive with knowledge intact.
         let (n, description, routed): (i64, String, i64) = conn

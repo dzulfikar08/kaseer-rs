@@ -10,7 +10,7 @@
 //! in update paths and load snapshots into screen state; `render` only
 //! derives presentation.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -34,7 +34,7 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
-use kaseer_core::bundles::{BundlePair, co_purchase_pairs, partner_suggestions};
+use kaseer_core::grow::{AddonPair, addon_pairs, receipt_text, wa_phone, whatsapp_url};
 use kaseer_core::cart::{self, Cart, CartTotals, Discount};
 use kaseer_core::currency::{Currency, IDR, currency_by_code};
 use kaseer_core::db::{open_repo, resolve_db_path};
@@ -46,17 +46,11 @@ use kaseer_core::loyalty::{
 use kaseer_core::menu;
 use kaseer_core::money;
 use kaseer_core::payments::{self, PaymentState, Tender, TenderMethod};
-use kaseer_core::receipt::{Sale, SaleLine, SaleTender, StoreInfo, render_receipt_text};
-use kaseer_core::repos::{Customer, Product, Repo, Settings};
+use kaseer_core::receipt::{AddonOffer, Sale, SaleLine, SaleTender, StoreInfo, render_receipt_text};
+use kaseer_core::repos::{Customer, Product, Repo, Settings, WinbackOfferRow};
 use kaseer_core::shift::Shift;
 use kaseer_core::tax::TaxRate;
 use kaseer_core::winback::{Recognition, recognition};
-
-/// Pairs need this many shared sales before the register suggests them:
-/// one shared basket is coincidence (same floor as kaseer-web).
-const MIN_PAIR_SUPPORT: i64 = 2;
-/// "Often bought with" shows at most this many partners.
-const MAX_SUGGESTIONS: usize = 2;
 
 /// What the register asks of the shell. The total block's "Open shift"
 /// control has to navigate, and navigation belongs to the shell.
@@ -89,10 +83,20 @@ pub struct RegisterScreen {
     menu_rev_seen: u64,
     /// Revision parked by the watcher, consumed at the top of render.
     pending_menu_rev: Option<u64>,
-    /// Co-purchase pairs over the whole sale history, strongest first.
+    /// "With X, offer Y" from the last 30 days of sales (kaseer_core::grow).
     /// Computed off the UI thread at startup and after every settled sale;
-    /// empty until then, which hides the suggestion card.
-    bundle_pairs: Vec<BundlePair>,
+    /// empty until then, which hides the add-on button.
+    addon_pairs: HashMap<String, AddonPair>,
+    /// The add-on on offer right now (partner product id), if any.
+    addon_prompt: Option<String>,
+    /// Add-ons offered during this cart; synced with the sale so the cloud
+    /// learns the real yes-rate.
+    addon_offers: Vec<AddonOffer>,
+    /// Win-back code applied to this cart.
+    offer: Option<WinbackOfferRow>,
+    /// The attached customer's live code, looked up once per customer.
+    offer_hint: Option<(String, Option<WinbackOfferRow>)>,
+    code_input: Entity<InputState>,
     /// The attached customer's visit summary, keyed by customer id so it
     /// is queried once per attach, not per frame.
     recognition: Option<(String, Recognition)>,
@@ -131,6 +135,7 @@ impl RegisterScreen {
         let pay_dialog = cx.new(|cx| PayDialog::new(currency, window, cx));
         let receipt_dialog = cx.new(|_cx| ReceiptDialog::new(receipts_dir, currency));
 
+        let code_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code, e.g. K7QM3X"));
         let mut screen = Self {
             repo,
             settings,
@@ -150,7 +155,12 @@ impl RegisterScreen {
             receipt_dialog,
             menu_rev_seen: crate::menu_sync::applied_revision(),
             pending_menu_rev: None,
-            bundle_pairs: Vec::new(),
+            addon_pairs: HashMap::new(),
+            addon_prompt: None,
+            addon_offers: Vec::new(),
+            offer: None,
+            offer_hint: None,
+            code_input,
             recognition: None,
             clear_armed: false,
             _subscriptions: Vec::new(),
@@ -176,10 +186,23 @@ impl RegisterScreen {
                     SelectEvent::Confirm(value) => {
                         let id = value.clone().filter(|id| !id.is_empty());
                         this.cart = cart::set_cart_customer(&this.cart, id);
+                        this.drop_stale_offer();
                         cx.notify();
                     }
                 }),
             );
+
+        // Enter in the code field applies it, like the Apply button.
+        let code = screen.code_input.clone();
+        screen._subscriptions.push(cx.subscribe_in(&code, window, |this, input, event, window, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                let raw = input.read(cx).value().to_string();
+                match this.apply_code(&raw, window, cx) {
+                    Ok(()) => window.close_dialog(cx),
+                    Err(message) => window.push_notification(Notification::error(message), cx),
+                }
+            }
+        }));
 
         let pay = screen.pay_dialog.clone();
         screen
@@ -275,21 +298,44 @@ impl RegisterScreen {
     /// connection is `!Sync`). The entity update only swaps the result in,
     /// so no ledger I/O runs inside it. A failed read keeps the old pairs.
     fn refresh_bundles(&self, cx: &mut Context<Self>) {
+        // Kaseer Cloud's pairs, when it sent some: every terminal offers the same.
+        if !self.settings.config.cloud_addons.is_empty() {
+            let pairs: HashMap<String, AddonPair> = self
+                .settings
+                .config
+                .cloud_addons
+                .iter()
+                .map(|a| {
+                    (
+                        a.anchor_id.clone(),
+                        AddonPair { anchor_id: a.anchor_id.clone(), partner_id: a.partner_id.clone(), attach_pct: a.attach_pct },
+                    )
+                })
+                .collect();
+            cx.spawn(async move |this, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.addon_pairs = pairs;
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
         let path = self.repo.db_path().to_string();
         cx.spawn(async move |this, cx| {
             let pairs = cx
                 .background_executor()
                 .spawn(async move {
                     let repo = open_repo(&path).ok()?;
-                    let sales = repo
-                        .sales_between("0000-01-01T00:00:00.000Z", "9999-12-31T23:59:59.999Z")
-                        .ok()?;
-                    Some(co_purchase_pairs(&sales, usize::MAX))
+                    let since = civil_timestamp((unix_nanos() / 1_000_000_000) as i64 - 30 * 86_400);
+                    let sales = repo.sales_between(&since, "9999-12-31T23:59:59.999Z").ok()?;
+                    let products = repo.products(true, None).ok()?;
+                    Some(addon_pairs(&sales, &products))
                 })
                 .await;
             if let Some(pairs) = pairs {
                 let _ = this.update(cx, |this, cx| {
-                    this.bundle_pairs = pairs;
+                    this.addon_pairs = pairs;
                     cx.notify();
                 });
             }
@@ -315,35 +361,146 @@ impl RegisterScreen {
         });
     }
 
-    /// Up to two products people bought with what is in the cart, from
-    /// real sale history only. Empty means the card stays hidden.
-    fn suggestions(&self) -> Vec<(Product, String, i64)> {
-        let basket: HashSet<&str> = self
-            .cart
-            .lines
-            .iter()
-            .map(|line| line.product_id.as_str())
-            .collect();
-        if basket.is_empty() {
-            return vec![];
+    /// The add-on button's product, while it is still worth offering.
+    fn addon_product(&self) -> Option<Product> {
+        let partner = self.addon_prompt.as_ref()?;
+        if self.cart.lines.iter().any(|l| &l.product_id == partner) {
+            return None;
         }
-        partner_suggestions(&self.bundle_pairs, &basket, MIN_PAIR_SUPPORT, MAX_SUGGESTIONS, |id| {
-            self.products.iter().any(|product| product.id == id)
-        })
-        .into_iter()
-        .filter_map(|suggestion| {
-            let product = self.products.iter().find(|p| p.id == suggestion.product_id)?;
-            // The anchor's current catalog name beats the first-seen name
-            // from history when the product was renamed since.
-            let anchor = self
-                .products
-                .iter()
-                .find(|p| p.id == suggestion.anchor_id)
-                .map(|p| p.name.clone())
-                .unwrap_or(suggestion.anchor_name);
-            Some((product.clone(), anchor, suggestion.support))
-        })
-        .collect()
+        self.products.iter().find(|p| &p.id == partner && !p.archived).cloned()
+    }
+
+    /// After a product lands in the cart: offer its usual add-on, once per cart.
+    fn maybe_offer_addon(&mut self, product_id: &str) {
+        if !self.settings.config.addon_prompt {
+            return;
+        }
+        let Some(pair) = self.addon_pairs.get(product_id) else {
+            return;
+        };
+        let in_cart = self.cart.lines.iter().any(|l| l.product_id == pair.partner_id);
+        let offered = self.addon_offers.iter().any(|o| o.partner_id == pair.partner_id);
+        if in_cart || offered {
+            return;
+        }
+        // A button replaced before anyone answered it was never really
+        // offered: it must not count as a "no" in the yes-rate.
+        if let Some(previous) = self.addon_prompt.take()
+            && let Some(ix) = self.addon_offers.iter().rposition(|o| o.partner_id == previous && !o.accepted)
+        {
+            self.addon_offers.remove(ix);
+        }
+        self.addon_offers.push(AddonOffer {
+            anchor_id: pair.anchor_id.clone(),
+            partner_id: pair.partner_id.clone(),
+            accepted: false,
+        });
+        self.addon_prompt = Some(pair.partner_id.clone());
+    }
+
+    /// A fresh cart: no add-on on offer, no code.
+    fn reset_grow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.addon_prompt = None;
+        self.addon_offers.clear();
+        self.offer = None;
+        self.code_input.update(cx, |input, cx| input.set_value("", window, cx));
+    }
+
+    /// Redeem a win-back code: attach its customer and take its discount.
+    fn apply_code(&mut self, raw: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
+        let code = kaseer_core::repos::normalize_code(raw);
+        if code.is_empty() {
+            return Err("Type the code from the customer's WhatsApp".to_string());
+        }
+        let offer = self
+            .repo
+            .live_winback_offer(&code, &now_iso())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("{code} is not a valid code (used, expired, or not synced yet)"))?;
+        // The cloud's customer may not be on this terminal yet.
+        if self.repo.customer_by_id(&offer.customer_id).map_err(|e| e.to_string())?.is_none() {
+            let customer = Customer {
+                id: offer.customer_id.clone(),
+                name: if offer.customer_name.is_empty() { offer.customer_phone.clone() } else { offer.customer_name.clone() },
+                phone: offer.customer_phone.clone(),
+                points: 0,
+                created_at: now_iso(),
+            };
+            self.repo.upsert_customer(&customer).map_err(|e| e.to_string())?;
+            self.customers = self.repo.customers(None).unwrap_or_default();
+        }
+        self.cart = cart::set_cart_customer(&self.cart, Some(offer.customer_id.clone()));
+        self.sync_customer_select(window, cx);
+        self.set_order_percent(offer.pct * 100, window, cx);
+        self.offer = Some(offer);
+        self.offer_hint = None;
+        cx.notify();
+        Ok(())
+    }
+
+    /// The attached customer's live win-back code, when none is applied yet.
+    fn pending_offer(&self) -> Option<WinbackOfferRow> {
+        if self.offer.is_some() {
+            return None;
+        }
+        let (id, offer) = self.offer_hint.as_ref()?;
+        (self.cart.customer_id.as_ref() == Some(id)).then(|| offer.clone()).flatten()
+    }
+
+    /// Look the attached customer's code up once per customer, not per frame.
+    fn sync_offer_hint(&mut self) {
+        let Some(id) = self.cart.customer_id.clone() else {
+            self.offer_hint = None;
+            return;
+        };
+        if self.offer_hint.as_ref().is_some_and(|(cached, _)| *cached == id) {
+            return;
+        }
+        let offer = self.repo.live_winback_offer_for(&id, &now_iso()).ok().flatten();
+        self.offer_hint = Some((id, offer));
+    }
+
+    /// The applied code still matches the sale: its customer, its discount.
+    fn offer_applies(&self) -> bool {
+        let Some(offer) = &self.offer else {
+            return false;
+        };
+        self.cart.customer_id.as_deref() == Some(offer.customer_id.as_str())
+            && self.cart.order_discount == Some(Discount::Percent { bps: offer.pct * 100 })
+    }
+
+    /// The cashier changed the customer or the discount: the code is off.
+    fn drop_stale_offer(&mut self) {
+        if self.offer.is_some() && !self.offer_applies() {
+            self.offer = None;
+        }
+    }
+
+    /// A WhatsApp number typed at payment: find that customer, or add one.
+    fn attach_phone(&mut self, phone: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
+        if wa_phone(phone, self.currency.code).is_none() {
+            return Err(format!("{phone} does not look like a WhatsApp number"));
+        }
+        let customer = match self.repo.customer_by_phone(phone).map_err(|e| e.to_string())? {
+            Some(found) => found,
+            None => {
+                // Nameless: the number is not a name (messages would read
+                // "Halo 0812…"); the Customers screen can add one later.
+                let c = Customer {
+                    id: format!("cus-{}", unix_nanos()),
+                    name: String::new(),
+                    phone: phone.trim().to_string(),
+                    points: 0,
+                    created_at: now_iso(),
+                };
+                self.repo.upsert_customer(&c).map_err(|e| e.to_string())?
+            }
+        };
+        self.customers = self.repo.customers(None).unwrap_or_default();
+        self.cart = cart::set_cart_customer(&self.cart, Some(customer.id));
+        self.drop_stale_offer();
+        self.sync_customer_select(window, cx);
+        Ok(())
     }
 
     /// Units per product in the cart: the tiles' quantity badges.
@@ -396,11 +553,17 @@ impl RegisterScreen {
     /// watcher parked a menu revision. Runs inside this view's own render
     /// pass: one owner, one thread, no re-entrant entity updates. A failed
     /// read keeps the previous snapshot.
-    fn consume_pending_menu_revision(&mut self) {
+    fn consume_pending_menu_revision(&mut self, cx: &mut Context<Self>) {
         let Some(rev) = self.pending_menu_rev.take() else {
             return;
         };
         self.menu_rev_seen = rev;
+        // The pull may carry the owner's switches, add-on pairs and new codes.
+        if let Ok(settings) = self.repo.settings() {
+            self.settings = settings;
+        }
+        self.offer_hint = None;
+        self.refresh_bundles(cx);
         if let Ok(products) = self.repo.products(false, None) {
             self.products = products;
         }
@@ -465,6 +628,14 @@ impl RegisterScreen {
         match cart::add_to_cart(&self.cart, &product.addable(), 1.0) {
             Ok(next) => {
                 self.cart = next;
+                // Taken while it was on offer (the button, or its tile).
+                if self.addon_prompt.as_deref() == Some(product.id.as_str()) {
+                    self.addon_prompt = None;
+                    if let Some(offer) = self.addon_offers.iter_mut().rev().find(|o| o.partner_id == product.id) {
+                        offer.accepted = true;
+                    }
+                }
+                self.maybe_offer_addon(&product.id);
                 cx.notify();
             }
             Err(error) => window.push_notification(Notification::error(error.to_string()), cx),
@@ -491,6 +662,7 @@ impl RegisterScreen {
             .unwrap_or(0);
         self.cart =
             cart::set_order_discount(&self.cart, (bps > 0).then_some(Discount::Percent { bps }));
+        self.drop_stale_offer();
         cx.notify();
     }
 
@@ -499,6 +671,7 @@ impl RegisterScreen {
         let label = percent_label(bps);
         self.percent
             .update(cx, |input, cx| input.set_value(label, window, cx));
+        self.drop_stale_offer();
         cx.notify();
     }
 
@@ -507,6 +680,9 @@ impl RegisterScreen {
         if self.clear_armed {
             self.cart = cart::clear_cart(&self.cart);
             self.clear_armed = false;
+            self.addon_prompt = None;
+            self.addon_offers.clear();
+            self.offer = None;
         } else {
             self.clear_armed = true;
         }
@@ -517,6 +693,7 @@ impl RegisterScreen {
         self.cart = cart::set_order_discount(&self.cart, None);
         self.percent
             .update(cx, |input, cx| input.set_value("", window, cx));
+        self.drop_stale_offer();
         cx.notify();
     }
 
@@ -536,8 +713,10 @@ impl RegisterScreen {
         });
         let loyalty = self.settings.loyalty.clone();
         let currency = self.currency;
+        let ask_phone = self.settings.config.ask_phone;
         self.pay_dialog.update(cx, |dialog, cx| {
-            dialog.reset(total_minor, customer, loyalty, currency, window, cx)
+            dialog.reset(total_minor, customer, loyalty, currency, window, cx);
+            dialog.set_ask_phone(ask_phone, cx);
         });
         open_pay_dialog(self.pay_dialog.clone(), window, cx);
     }
@@ -546,10 +725,18 @@ impl RegisterScreen {
         let PayEvent::Paid {
             tenders,
             redeem_points,
+            phone,
         } = event;
+        // A mistyped number never holds up the sale: settle as a walk-in.
+        if let Some(phone) = phone
+            && let Err(message) = self.attach_phone(phone, window, cx)
+        {
+            window.push_notification(Notification::warning(format!("{message}; sold as walk-in")), cx);
+        }
         match self.checkout(tenders, *redeem_points, cx) {
             Ok(sale) => {
                 window.close_dialog(cx);
+                self.reset_grow(window, cx);
                 self.refresh_catalog(window, cx);
                 // The new sale is history now: pairs and visit counts move.
                 self.refresh_bundles(cx);
@@ -656,6 +843,17 @@ impl RegisterScreen {
             points_earned: earned,
             points_redeemed: redeemable,
             tax_by_rate_id: totals.tax_by_rate_id,
+            // Only while the code's customer and discount are still on the sale.
+            offer_code: self.offer_applies().then(|| self.offer.as_ref().map(|o| o.code.clone())).flatten(),
+            // Taken while offered, and still in the cart at payment.
+            addon_offers: self
+                .addon_offers
+                .iter()
+                .map(|o| AddonOffer {
+                    accepted: o.accepted && self.cart.lines.iter().any(|l| l.product_id == o.partner_id),
+                    ..o.clone()
+                })
+                .collect(),
         };
 
         // Stock movements for tracked products (tracked items sell whole).
@@ -686,8 +884,15 @@ impl RegisterScreen {
             footer: non_empty(self.settings.receipt_footer.clone()),
         };
         let number = sale.number.clone();
-        self.receipt_dialog
-            .update(cx, |dialog, _| dialog.show(sale, store));
+        let whatsapp = sale
+            .customer_id
+            .as_ref()
+            .and_then(|id| self.repo.customer_by_id(id).ok().flatten())
+            .and_then(|c| wa_phone(&c.phone, self.currency.code));
+        self.receipt_dialog.update(cx, |dialog, _| {
+            dialog.show(sale, store);
+            dialog.set_whatsapp(whatsapp);
+        });
         let receipt = self.receipt_dialog.clone();
         let surface = cx.theme().popover;
         window.open_dialog(cx, move |dialog, _, _| {
@@ -1109,7 +1314,8 @@ impl RegisterScreen {
         customer: Option<Customer>,
     ) -> impl IntoElement {
         use crate::theme::touch;
-        let suggestions = self.suggestions();
+        let addon = self.addon_product();
+        let pending_offer = self.pending_offer();
         v_flex()
             .w(touch::CART_W)
             .flex_none()
@@ -1129,9 +1335,8 @@ impl RegisterScreen {
                 panel.child(self.render_recognition(&customer, cx))
             })
             .child(self.render_cart_lines(cx))
-            .when(!suggestions.is_empty(), |panel| {
-                panel.child(self.render_suggestions(suggestions, cx))
-            })
+            .when_some(pending_offer, |panel, offer| panel.child(self.render_offer_prompt(offer, cx)))
+            .when_some(addon, |panel, product| panel.child(self.render_addon(product, cx)))
             .when(!self.cart.lines.is_empty(), |panel| {
                 panel.child(self.render_cart_actions(totals, cx))
             })
@@ -1363,6 +1568,11 @@ impl RegisterScreen {
             }
             _ => SharedString::from("Discount"),
         };
+        let code_label = match &self.offer {
+            Some(offer) => SharedString::from(offer.code.clone()),
+            None => SharedString::from("Code"),
+        };
+        let has_code = self.offer.is_some();
         let armed = self.clear_armed;
         let danger = theme.danger;
         let action = |id: &'static str| {
@@ -1392,6 +1602,16 @@ impl RegisterScreen {
                     .child(Icon::new(IconName::Percent).with_size(px(18.)))
                     .child(discount_label)
                     .on_click(cx.listener(|this, _, window, cx| this.open_discount(window, cx))),
+            )
+            .child(
+                action("cart-code")
+                    .bg(theme.secondary)
+                    .hover(move |style| style.bg(hover))
+                    .when(has_code, |button| button.border_1().border_color(theme.accent))
+                    .child(Icon::new(IconName::Ticket).with_size(px(18.)))
+                    .child(code_label)
+                    .when(!has_code, |button| button.child(super::key_cap("F3")))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_code(window, cx))),
             )
             .child(
                 action("cart-clear")
@@ -1515,83 +1735,216 @@ impl RegisterScreen {
         });
     }
 
-    /// "Often bought with": partners from real co-purchase history, with
-    /// the evidence first so the cashier can say it out loud ("27 sales
-    /// with Kopi Susu"). The Add button puts the product in the cart.
-    fn render_suggestions(
-        &self,
-        suggestions: Vec<(Product, String, i64)>,
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
+    /// Win-back code: the cashier types what the customer shows from
+    /// WhatsApp; a valid code attaches the customer and takes its discount.
+    pub fn open_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let register = cx.entity();
+        let input = self.code_input.clone();
+        let applied = self.offer.as_ref().map(|o| o.code.clone());
+        window.open_dialog(cx, move |dialog, _, cx| {
+            use crate::theme::touch;
+            let theme = cx.theme();
+            let apply = {
+                let register = register.clone();
+                let input = input.clone();
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                    let raw = input.read(cx).value().to_string();
+                    let result = register.update(cx, |r, cx| r.apply_code(&raw, window, cx));
+                    match result {
+                        Ok(()) => window.close_dialog(cx),
+                        Err(message) => window.push_notification(Notification::error(message), cx),
+                    }
+                }
+            };
+            let remove = {
+                let register = register.clone();
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                    register.update(cx, |r, cx| {
+                        r.offer = None;
+                        r.clear_order_percent(window, cx);
+                    });
+                    window.close_dialog(cx);
+                }
+            };
+            dialog
+                .title("Win-back code")
+                .w(px(520.))
+                .child(
+                    v_flex()
+                        .gap(px(16.))
+                        .child(
+                            div()
+                                .text_size(touch::FONT_BODY)
+                                .text_color(theme.muted_foreground)
+                                .child("The code from the customer's WhatsApp message. It attaches the customer and takes the discount."),
+                        )
+                        .child(
+                            h_flex()
+                                .gap(px(10.))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .h(px(64.))
+                                        .px(px(16.))
+                                        .flex()
+                                        .items_center()
+                                        .rounded(touch::RADIUS)
+                                        .border_1()
+                                        .border_color(crate::theme::border_strong())
+                                        .child(
+                                            Input::new(&input)
+                                                .id("code-input")
+                                                .appearance(false)
+                                                .text_size(px(26.)),
+                                        ),
+                                )
+                                .child(Button::new("code-apply").primary().h(px(64.)).w(px(140.)).label("Apply").on_click(apply)),
+                        )
+                        .when_some(applied.clone(), |col, code| {
+                            col.child(
+                                Button::new("code-remove")
+                                    .ghost()
+                                    .h(touch::TAP)
+                                    .w_full()
+                                    .label(SharedString::from(format!("Remove code {code}")))
+                                    .on_click(remove),
+                            )
+                        }),
+                )
+        });
+        let input = self.code_input.clone();
+        window.defer(cx, move |window, cx| input.update(cx, |i, cx| i.focus(window, cx)));
+    }
+
+    /// The add-on button: what people usually take with what was just
+    /// added, one big tap to add it, or No.
+    fn render_addon(&self, product: Product, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
         let theme = cx.theme();
-        let mut card = v_flex()
+        let hover = theme.secondary_hover;
+        let product_id = product.id.clone();
+        let anchor = self
+            .addon_offers
+            .iter()
+            .rev()
+            .find(|o| o.partner_id == product.id)
+            .and_then(|o| self.products.iter().find(|p| p.id == o.anchor_id))
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        let attach = self
+            .addon_pairs
+            .values()
+            .find(|p| p.partner_id == product.id)
+            .map(|p| p.attach_pct)
+            .unwrap_or(0);
+        v_flex()
             .flex_none()
             .gap(px(8.))
-            .p(px(10.))
-            .rounded(crate::theme::metrics::RADIUS_LG)
+            .p(px(12.))
+            .rounded(touch::RADIUS_LG)
             .bg(theme.background)
             .border_1()
-            .border_color(theme.border)
+            .border_color(theme.accent)
+            .child(
+                div()
+                    .text_size(touch::FONT_LABEL)
+                    .text_color(theme.muted_foreground)
+                    .child(SharedString::from(format!("Ask: {attach}% of {anchor} orders take this too"))),
+            )
             .child(
                 h_flex()
                     .gap(px(8.))
-                    .items_center()
-                    .text_size(crate::theme::metrics::FONT_FOOTNOTE)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.muted_foreground)
-                    .child(Icon::new(IconName::Link2).with_size(px(12.)).text_color(theme.muted_foreground))
-                    .child("OFTEN BOUGHT WITH"),
-            );
-        for (product, anchor, support) in suggestions {
-            let product_id = product.id.clone();
-            card = card.child(
-                h_flex()
-                    .gap(px(10.))
-                    .items_center()
                     .child(
-                        v_flex()
+                        h_flex()
+                            .id("addon-add")
+                            .cursor_pointer()
                             .flex_1()
                             .min_w_0()
-                            .gap(px(1.))
+                            .h(touch::TAP)
+                            .px(px(14.))
+                            .gap(px(10.))
+                            .items_center()
+                            .rounded(touch::RADIUS)
+                            .bg(theme.primary)
+                            .text_color(theme.primary_foreground)
+                            .active(|style| style.opacity(0.8))
+                            .child(Icon::new(IconName::Plus).with_size(px(20.)))
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
                                     .truncate()
-                                    .text_size(crate::theme::metrics::FONT_FOOTNOTE)
-                                    .text_color(crate::theme::text_dim())
-                                    .child(SharedString::from(format!("{support} sales with {anchor}"))),
+                                    .text_size(px(17.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(SharedString::from(product.name.clone())),
                             )
                             .child(
-                                div()
-                                    .truncate()
-                                    .text_size(crate::theme::metrics::FONT_EMPHASIS)
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(SharedString::from(product.name.clone())),
-                            ),
-                    )
-                    .child(
-                        super::money_text(fmt_money(product.price_minor, self.currency))
-                            .flex_none()
-                            .text_size(crate::theme::metrics::FONT_BODY)
-                            .text_color(theme.muted_foreground)
-                            .text_right(),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("suggest-add-{}", product.id)))
-                            .secondary()
-                            .small()
-                            .icon(Icon::new(IconName::Plus).with_size(px(13.)))
-                            .label("Add")
+                                super::money_text(fmt_money(product.price_minor, self.currency))
+                                    .text_size(px(17.))
+                                    .font_weight(FontWeight::SEMIBOLD),
+                            )
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                if let Some(product) =
-                                    this.products.iter().find(|p| p.id == product_id).cloned()
-                                {
+                                if let Some(product) = this.products.iter().find(|p| p.id == product_id).cloned() {
                                     this.add_product(&product, window, cx);
                                 }
                             })),
+                    )
+                    .child(
+                        h_flex()
+                            .id("addon-no")
+                            .cursor_pointer()
+                            .flex_none()
+                            .w(px(76.))
+                            .h(touch::TAP)
+                            .items_center()
+                            .justify_center()
+                            .rounded(touch::RADIUS)
+                            .bg(theme.secondary)
+                            .hover(move |style| style.bg(hover))
+                            .text_size(touch::FONT_LABEL)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("No")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.addon_prompt = None;
+                                cx.notify();
+                            })),
                     ),
-            );
-        }
-        card
+            )
+    }
+
+    /// The attached customer has a win-back code waiting: one tap applies it.
+    fn render_offer_prompt(&self, offer: WinbackOfferRow, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let code = offer.code.clone();
+        h_flex()
+            .id("offer-apply")
+            .cursor_pointer()
+            .flex_none()
+            .h(touch::TAP)
+            .px(px(14.))
+            .gap(px(10.))
+            .items_center()
+            .rounded(touch::RADIUS)
+            .border_1()
+            .border_color(theme.accent)
+            .bg(theme.background)
+            .active(|style| style.opacity(0.8))
+            .child(Icon::new(IconName::Ticket).with_size(px(18.)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(touch::FONT_LABEL)
+                    .child(SharedString::from(format!("Win-back code {} · {}% off", offer.code, offer.pct))),
+            )
+            .child(div().text_size(touch::FONT_LABEL).font_weight(FontWeight::SEMIBOLD).child("Apply"))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if let Err(message) = this.apply_code(&code, window, cx) {
+                    window.push_notification(Notification::error(message), cx);
+                }
+            }))
     }
 
     /// The total block: the sale's money and its one action, the same
@@ -1746,11 +2099,12 @@ impl Render for RegisterScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // A menu pull landed while we were idle: reload the snapshot here,
         // in this view's own render pass (see spawn_menu_watch).
-        self.consume_pending_menu_revision();
+        self.consume_pending_menu_revision(cx);
         // Customers' "Sell to" hands its pick over through the
         // SelectedCustomer global; consume it before reading the cart.
         self.consume_selected_customer(window, cx);
         self.sync_recognition();
+        self.sync_offer_hint();
         let totals = self.totals();
         let products = self.filtered_products(cx);
         let customer = self.attached_customer();
@@ -1788,6 +2142,8 @@ pub(crate) enum PayEvent {
     Paid {
         tenders: Vec<Tender>,
         redeem_points: i64,
+        /// WhatsApp number typed at payment (no customer was attached).
+        phone: Option<String>,
     },
 }
 
@@ -1819,6 +2175,10 @@ pub(crate) struct PayDialog {
     method: TenderMethod,
     entry: Entity<InputState>,
     redeem: Entity<InputState>,
+    /// Optional WhatsApp number, shown when the store asks for one and no
+    /// customer is attached (never in training).
+    phone: Entity<InputState>,
+    ask_phone: bool,
     /// Paid was emitted: ignore further commits (Enter reaches both the
     /// amount field and the dialog's Confirm) until the next reset.
     settled: bool,
@@ -1900,6 +2260,7 @@ impl PayDialog {
     ) -> Self {
         let entry = cx.new(|cx| InputState::new(window, cx));
         let redeem = cx.new(|cx| InputState::new(window, cx).placeholder("Points"));
+        let phone = cx.new(|cx| InputState::new(window, cx).placeholder("08…"));
         // Enter in the amount completes, like the big button.
         let subscription = cx.subscribe_in(&entry, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
@@ -1920,6 +2281,8 @@ impl PayDialog {
             method: TenderMethod::Cash,
             entry,
             redeem,
+            phone,
+            ask_phone: false,
             settled: false,
             _subscriptions: vec![subscription],
         }
@@ -1945,6 +2308,15 @@ impl PayDialog {
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.redeem
             .update(cx, |input, cx| input.set_value("", window, cx));
+        self.phone
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.ask_phone = false;
+        cx.notify();
+    }
+
+    /// Show the WhatsApp number field (the register calls this after reset).
+    pub(crate) fn set_ask_phone(&mut self, ask: bool, cx: &mut Context<Self>) {
+        self.ask_phone = ask && self.customer.is_none();
         cx.notify();
     }
 
@@ -2019,9 +2391,11 @@ impl PayDialog {
         if self.payment(cx).complete {
             self.settled = true;
             let redeem_points = self.clamped_redeem_points(self.max_redeem(), cx);
+            let phone = self.ask_phone.then(|| self.phone.read(cx).value().trim().to_string()).filter(|p| !p.is_empty());
             cx.emit(PayEvent::Paid {
                 tenders: self.tenders.clone(),
                 redeem_points,
+                phone,
             });
         }
         cx.notify();
@@ -2196,6 +2570,30 @@ impl PayDialog {
                                             )
                                         ))),
                                 ),
+                        ),
+                )
+            })
+            .when(self.ask_phone, |col| {
+                col.child(
+                    v_flex()
+                        .gap(px(8.))
+                        .child(label("WHATSAPP NUMBER · OPTIONAL"))
+                        .child(
+                            div()
+                                .h(touch::TAP_SM)
+                                .px(px(12.))
+                                .flex()
+                                .items_center()
+                                .rounded(touch::RADIUS)
+                                .border_1()
+                                .border_color(crate::theme::border_strong())
+                                .child(Input::new(&self.phone).id("pay-phone").appearance(false).text_size(px(17.))),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(theme.muted_foreground)
+                                .child("For points and a receipt on WhatsApp."),
                         ),
                 )
             })
@@ -2475,6 +2873,8 @@ pub(crate) struct ReceiptDialog {
     store: StoreInfo,
     currency: &'static Currency,
     receipts_dir: Option<PathBuf>,
+    /// The customer's WhatsApp number (wa.me form), when the sale has one.
+    whatsapp: Option<String>,
 }
 
 impl ReceiptDialog {
@@ -2484,12 +2884,19 @@ impl ReceiptDialog {
             store: StoreInfo::named("Kaseer"),
             currency,
             receipts_dir,
+            whatsapp: None,
         }
     }
 
     pub(crate) fn show(&mut self, sale: Sale, store: StoreInfo) {
         self.sale = Some(sale);
         self.store = store;
+        self.whatsapp = None;
+    }
+
+    /// Offer "Send on WhatsApp" for this receipt.
+    pub(crate) fn set_whatsapp(&mut self, phone: Option<String>) {
+        self.whatsapp = phone;
     }
 
     /// Drop the shown sale (a fresh training run starts clean).
@@ -2669,6 +3076,23 @@ impl Render for ReceiptDialog {
                                 );
                             })),
                     )
+                    .when_some(self.whatsapp.clone(), |row, phone| {
+                        row.child(
+                            Button::new("receipt-whatsapp")
+                                .secondary()
+                                .h(crate::theme::touch::TAP)
+                                .px(px(20.))
+                                .icon(Icon::new(IconName::Send).with_size(px(16.)))
+                                .label("WhatsApp")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let Some(sale) = this.sale.as_ref() else {
+                                        return;
+                                    };
+                                    let text = receipt_text(sale, &this.store.name, this.currency);
+                                    cx.open_url(&whatsapp_url(&phone, &text));
+                                })),
+                        )
+                    })
                     .child(
                         Button::new("receipt-new-sale")
                             .primary()
@@ -2716,7 +3140,8 @@ pub(crate) fn customer_items(customers: &[Customer]) -> Vec<CustomerItem> {
     }];
     items.extend(customers.iter().map(|customer| CustomerItem {
         id: customer.id.clone(),
-        label: customer.name.clone(),
+        // A customer added from a typed number has no name yet.
+        label: if customer.name.trim().is_empty() { customer.phone.clone() } else { customer.name.clone() },
     }));
     items
 }

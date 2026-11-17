@@ -383,6 +383,7 @@ impl TrainingScreen {
         let PayEvent::Paid {
             tenders,
             redeem_points,
+            ..
         } = event;
         match self.checkout(tenders, *redeem_points) {
             Ok(sale) => {
@@ -492,6 +493,8 @@ impl TrainingScreen {
             points_earned: earned,
             points_redeemed: redeemable,
             tax_by_rate_id: totals.tax_by_rate_id,
+            offer_code: None,
+            addon_offers: vec![],
         };
 
         let mut tracked = std::collections::HashMap::new();

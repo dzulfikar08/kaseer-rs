@@ -67,6 +67,11 @@ pub struct SettingsScreen {
     currency: Entity<SelectState<SearchableVec<CurrencyItem>>>,
     currency_code: String,
     loyalty_enabled: bool,
+    /// Grow switches (StoreConfig); Kaseer Cloud overwrites them on a menu pull.
+    addon_prompt: bool,
+    ask_phone: bool,
+    winback_discount_pct: i64,
+    cloud_addons: Vec<kaseer_core::repos::CloudAddon>,
     step_minor: Entity<InputState>,
     points_per_step: Entity<InputState>,
     point_value_minor: Entity<InputState>,
@@ -205,6 +210,10 @@ impl SettingsScreen {
             currency,
             currency_code,
             loyalty_enabled: store.is_some_and(|s| s.loyalty.enabled),
+            addon_prompt: store.is_none_or(|s| s.config.addon_prompt),
+            ask_phone: store.is_none_or(|s| s.config.ask_phone),
+            winback_discount_pct: store.map_or(10, |s| s.config.winback_discount_pct),
+            cloud_addons: store.map(|s| s.config.cloud_addons.clone()).unwrap_or_default(),
             step_minor,
             points_per_step,
             point_value_minor,
@@ -303,6 +312,10 @@ impl SettingsScreen {
             },
             config: StoreConfig {
                 lost_after_days: non_neg_int(&self.lost_after_days.read(cx).value()),
+                addon_prompt: self.addon_prompt,
+                ask_phone: self.ask_phone,
+                winback_discount_pct: self.winback_discount_pct,
+                cloud_addons: self.cloud_addons.clone(),
             },
         };
         match self.with_repo(|repo| repo.update_settings(&next)) {
@@ -815,6 +828,37 @@ impl SettingsScreen {
                         div()
                             .w_24()
                             .child(Input::new(&self.lost_after_days)),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .pt_2()
+                    .child(
+                        Switch::new("addon-prompt")
+                            .label("Offer the usual add-on after a product is added")
+                            .checked(self.addon_prompt)
+                            .on_change(cx.listener(|this, checked: &bool, _, cx| {
+                                this.addon_prompt = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Switch::new("ask-phone")
+                            .label("Ask for a WhatsApp number at payment")
+                            .checked(self.ask_phone)
+                            .on_change(cx.listener(|this, checked: &bool, _, cx| {
+                                this.ask_phone = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_color(crate::theme::text_dim())
+                            .child("With Kaseer Cloud, these follow the owner's Grow settings."),
                     ),
             )
     }

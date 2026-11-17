@@ -14,17 +14,23 @@ Built for a touch screen at the counter: every button is finger-sized (52px and 
 keyboard still does everything (F-keys, a barcode scanner as a keyboard wedge, Enter to pay).
 
 - **Register**: barcode scan or tap, categories, cart discounts, customers and loyalty points,
-  cash/card/QRIS/transfer tenders with change, receipts (ESC/POS).
+  cash/card/QRIS/transfer tenders with change, receipts (ESC/POS, or on WhatsApp).
+- **Sells more at the counter**: after a product is added, a big button offers what customers
+  usually take with it (worked out from the last 30 days of receipts); the payment screen can ask
+  for a WhatsApp number, so walk-ins become regulars with points; win-back codes sent from Kaseer
+  Cloud are redeemed with F3. Both switches are in Settings.
 - **Shift**: open and close the till, cash counts, the shift's sales.
 - **Inventory, Customers, Reports**: stock levels, the customer list, daily sales.
 - **Training mode**: a sandbox ledger for new cashiers; real sales are never touched.
 - **Knowledge**: product notes the cashier can look up at the counter.
 - **Cloud sync (optional)**: sales queue in a local outbox and drain to
-  [Kaseer Cloud](https://kaseer.site) when online; the menu, photos and app updates come back
-  the same way. Without a cloud, Kaseer works fully on its own.
+  [Kaseer Cloud](https://kaseer.site) when online; the menu, photos, app updates, the owner's
+  Grow switches and live win-back codes come back the same way. Each synced sale says which
+  add-ons were offered and taken, so the cloud measures the real yes-rate. Without a cloud,
+  Kaseer works fully on its own.
 
 Keyboard: F1 Register, F7 Shift, F8 Inventory, F9 Customers, F6 Reports, F11 Settings,
-F5 Training, F10 Knowledge, Alt+] / Alt+[ to cycle screens, F2 to pay.
+F5 Training, F10 Knowledge, Alt+] / Alt+[ to cycle screens, F2 to pay, F3 for a win-back code.
 
 ## Download
 

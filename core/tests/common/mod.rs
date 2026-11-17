@@ -88,6 +88,8 @@ pub fn bare_sale(at: &str, customer_id: Option<&str>, lines: Vec<SaleLine>, net_
         points_earned: 0,
         points_redeemed: 0,
         tax_by_rate_id: Default::default(),
+        offer_code: None,
+        addon_offers: vec![],
     }
 }
 

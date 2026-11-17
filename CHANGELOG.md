@@ -4,7 +4,34 @@ All notable changes to Kaseer are listed here. Versions follow [Semantic Version
 
 ## [Unreleased]
 
-## [0.4.1] - 2026-11-17
+## [0.5.0] - 2026-11-17
+
+The register now helps sell: it offers the usual add-on, takes win-back codes, and turns walk-ins
+into regulars. With Kaseer Cloud, the owner sees what each of these brought in.
+
+### Added
+
+- Add-on button: after a product is added, the cart offers what customers usually take with it
+  ("Ask: 36% of Kopi Susu orders take this too", then one big button or No). Pairs come from
+  Kaseer Cloud, or from this register's last 30 days of sales without a cloud. Each sale records
+  which add-ons were offered and taken, so the cloud measures the real yes-rate.
+- Win-back codes: F3 (or the Code button) takes the code from the customer's WhatsApp message,
+  attaches the customer and takes the discount; a customer with a live code gets an Apply prompt.
+  Codes arrive with the menu, so they work offline; a code is used once. Changing the customer or
+  the discount takes the code off the sale.
+- WhatsApp number at payment (optional): finds the customer or adds a new one, so a walk-in earns
+  points and can be won back later. A mistyped number never holds up the sale.
+- Receipts on WhatsApp for customers with a number.
+- Settings: switches for the add-on button and the number prompt (with Kaseer Cloud they follow
+  the owner's Grow settings).
+
+### Changed
+
+- The "Often bought with" card is replaced by the add-on button.
+- Ledger schema v5 (shared with the web companion): `sales.offer_code`,
+  `sales.addon_offers_json` and the `winback_offers` table.
+
+ - 2026-11-17
 
 Shift, Inventory and Customers get the register's big-button treatment.
 

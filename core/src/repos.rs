@@ -44,6 +44,37 @@ pub struct StoreConfig {
     /// snake_case ledgers readable.
     #[serde(default = "default_lost_after_days", alias = "lost_after_days")]
     pub lost_after_days: i64,
+    /// Register offers the usual add-on after an anchor product is added.
+    #[serde(default = "default_true")]
+    pub addon_prompt: bool,
+    /// Payment asks for a WhatsApp number when no customer is attached.
+    #[serde(default = "default_true")]
+    pub ask_phone: bool,
+    /// Discount a win-back code gives, percent (the cloud's code carries its own).
+    #[serde(default = "default_winback_discount_pct")]
+    pub winback_discount_pct: i64,
+    /// Kaseer Cloud's add-on pairs, so every terminal offers the same
+    /// thing; empty without a cloud (the register works them out itself).
+    #[serde(default)]
+    pub cloud_addons: Vec<CloudAddon>,
+}
+
+/// "With `anchor_id`, offer `partner_id`", as Kaseer Cloud chose it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudAddon {
+    pub anchor_id: String,
+    pub partner_id: String,
+    #[serde(default)]
+    pub attach_pct: i64,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_winback_discount_pct() -> i64 {
+    10
 }
 
 fn default_lost_after_days() -> i64 {
@@ -52,7 +83,7 @@ fn default_lost_after_days() -> i64 {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        StoreConfig { lost_after_days: 30 }
+        StoreConfig { lost_after_days: 30, addon_prompt: true, ask_phone: true, winback_discount_pct: 10, cloud_addons: Vec::new() }
     }
 }
 
@@ -118,6 +149,35 @@ pub struct Customer {
     pub phone: String,
     pub points: i64,
     pub created_at: String,
+}
+
+/// A win-back code from the cloud, as the register keeps it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WinbackOfferRow {
+    pub code: String,
+    pub customer_id: String,
+    pub customer_name: String,
+    pub customer_phone: String,
+    pub pct: i64,
+    pub expires_at: String,
+}
+
+impl WinbackOfferRow {
+    fn from_row(r: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(WinbackOfferRow {
+            code: r.get(0)?,
+            customer_id: r.get(1)?,
+            customer_name: r.get(2)?,
+            customer_phone: r.get(3)?,
+            pct: r.get(4)?,
+            expires_at: r.get(5)?,
+        })
+    }
+}
+
+/// A typed code as stored: upper case, letters and digits only.
+pub fn normalize_code(raw: &str) -> String {
+    raw.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +247,25 @@ impl Repo {
                 next.currency_code,
                 serde_json::to_string(&next.loyalty)?,
                 serde_json::to_string(&next.config)?
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Write only the Grow keys of `config_json` (the cloud's switches and
+    /// add-on pairs), leaving every other key, including ones only the web
+    /// companion knows, untouched.
+    pub fn set_grow_config(&self, addon_prompt: bool, ask_phone: bool, winback_discount_pct: i64, cloud_addons: &[CloudAddon]) -> Result<()> {
+        self.conn.execute(
+            "UPDATE settings SET config_json = json_set(
+               CASE WHEN json_valid(config_json) THEN config_json ELSE '{}' END,
+               '$.addonPrompt', json(?1), '$.askPhone', json(?2), '$.winbackDiscountPct', ?3, '$.cloudAddons', json(?4))
+             WHERE id = 1",
+            params![
+                if addon_prompt { "true" } else { "false" },
+                if ask_phone { "true" } else { "false" },
+                winback_discount_pct,
+                serde_json::to_string(cloud_addons)?
             ],
         )?;
         Ok(())
@@ -535,6 +614,8 @@ impl Repo {
             points_earned: row.get("points_earned")?,
             points_redeemed: row.get("points_redeemed")?,
             tax_by_rate_json: row.get("tax_by_rate_json")?,
+            offer_code: row.get("offer_code")?,
+            addon_offers_json: row.get("addon_offers_json")?,
         })
     }
 
@@ -562,8 +643,8 @@ impl Repo {
         tx.execute(
             "INSERT INTO sales (id, number, at, currency, shift_id, customer_id, customer_name_snapshot,
                gross_minor, discount_minor, net_minor, tax_minor, total_minor, change_minor,
-               points_earned, points_redeemed, tax_by_rate_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               points_earned, points_redeemed, tax_by_rate_json, offer_code, addon_offers_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 sale.id,
                 sale.number,
@@ -580,9 +661,17 @@ impl Repo {
                 sale.change_minor,
                 sale.points_earned,
                 sale.points_redeemed,
-                serde_json::to_string(&sale.tax_by_rate_id)?
+                serde_json::to_string(&sale.tax_by_rate_id)?,
+                sale.offer_code,
+                serde_json::to_string(&sale.addon_offers)?
             ],
         )?;
+        if let Some(code) = &sale.offer_code {
+            tx.execute(
+                "UPDATE winback_offers SET redeemed_sale_id = ?1 WHERE code = ?2 AND redeemed_sale_id IS NULL",
+                params![sale.id, code],
+            )?;
+        }
 
         for line in &sale.lines {
             let cost: Option<i64> = tx
@@ -693,6 +782,78 @@ impl Repo {
         Ok(out)
     }
 
+    // ── Win-back codes ────────────────────────────────────────────────────
+
+    /// Replace the cloud's live codes (the menu pull carries all of them).
+    /// Codes this register already redeemed stay redeemed until the cloud
+    /// drops them, so a code cannot be used twice between pulls.
+    pub fn replace_winback_offers(&self, offers: &[WinbackOfferRow]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        let redeemed: HashMap<String, String> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT code, redeemed_sale_id FROM winback_offers WHERE redeemed_sale_id IS NOT NULL")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            rows.collect::<rusqlite::Result<HashMap<_, _>>>()?
+        };
+        self.conn.execute("DELETE FROM winback_offers", [])?;
+        for o in offers {
+            self.conn.execute(
+                "INSERT OR REPLACE INTO winback_offers (code, customer_id, customer_name, customer_phone, pct, expires_at, redeemed_sale_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    normalize_code(&o.code),
+                    o.customer_id,
+                    o.customer_name,
+                    o.customer_phone,
+                    o.pct,
+                    o.expires_at,
+                    redeemed.get(&normalize_code(&o.code))
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A live (unexpired, unredeemed) code, as typed by the cashier.
+    pub fn live_winback_offer(&self, code: &str, now_iso: &str) -> Result<Option<WinbackOfferRow>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT code, customer_id, customer_name, customer_phone, pct, expires_at FROM winback_offers
+                 WHERE code = ?1 AND redeemed_sale_id IS NULL AND expires_at > ?2",
+                params![normalize_code(code), now_iso],
+                WinbackOfferRow::from_row,
+            )
+            .optional()?)
+    }
+
+    /// The live code for a customer, if the cloud issued one.
+    pub fn live_winback_offer_for(&self, customer_id: &str, now_iso: &str) -> Result<Option<WinbackOfferRow>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT code, customer_id, customer_name, customer_phone, pct, expires_at FROM winback_offers
+                 WHERE customer_id = ?1 AND redeemed_sale_id IS NULL AND expires_at > ?2 ORDER BY expires_at DESC LIMIT 1",
+                params![customer_id, now_iso],
+                WinbackOfferRow::from_row,
+            )
+            .optional()?)
+    }
+
+    /// A customer by phone number, matching on digits so "0812-3456" finds "08123456".
+    pub fn customer_by_phone(&self, phone: &str) -> Result<Option<Customer>> {
+        let want = crate::grow::phone_key(phone);
+        if want.is_empty() {
+            return Ok(None);
+        }
+        Ok(self
+            .customers(None)?
+            .into_iter()
+            .find(|c| crate::grow::phone_key(&c.phone) == want))
+    }
+
     // ── Held tickets ──────────────────────────────────────────────────────
 
     pub fn hold_ticket(&self, label: &str, cart_json: &str) -> Result<HeldTicket> {
@@ -758,6 +919,8 @@ struct SaleFields {
     points_earned: i64,
     points_redeemed: i64,
     tax_by_rate_json: String,
+    offer_code: Option<String>,
+    addon_offers_json: String,
 }
 
 impl SaleFields {
@@ -781,6 +944,8 @@ impl SaleFields {
             points_earned: self.points_earned,
             points_redeemed: self.points_redeemed,
             tax_by_rate_id: serde_json::from_str(&self.tax_by_rate_json).unwrap_or_default(),
+            offer_code: self.offer_code,
+            addon_offers: serde_json::from_str(&self.addon_offers_json).unwrap_or_default(),
         }
     }
 }

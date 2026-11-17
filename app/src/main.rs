@@ -113,6 +113,7 @@ fn main() {
             cx.bind_keys([
                 KeyBinding::new("f1", crate::shell::GoRegister, None),
                 KeyBinding::new("f2", crate::shell::PayCurrent, None),
+                KeyBinding::new("f3", crate::shell::EnterCode, None),
                 KeyBinding::new("f5", crate::shell::GoTraining, None),
                 KeyBinding::new("f6", crate::shell::GoReports, None),
                 KeyBinding::new("f7", crate::shell::GoShift, None),

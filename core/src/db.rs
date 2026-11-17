@@ -256,6 +256,42 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch("PRAGMA user_version = 4;")?;
         tx.commit()?;
     }
+    if version < 5 {
+        let tx = conn.unchecked_transaction()?;
+        // 0.5 Grow loop: the win-back code a sale redeemed, the add-ons the
+        // register offered during it, and the cloud's live codes so a code
+        // can be redeemed offline.
+        let has_sales: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'sales'",
+            [],
+            |r| r.get(0),
+        )?;
+        if has_sales {
+            // Safe to repeat: the web companion may have run its copy of v5.
+            let has_column = |name: &str| -> rusqlite::Result<bool> {
+                conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('sales') WHERE name = ?1", [name], |r| r.get(0))
+            };
+            if !has_column("offer_code")? {
+                conn.execute_batch("ALTER TABLE sales ADD COLUMN offer_code TEXT;")?;
+            }
+            if !has_column("addon_offers_json")? {
+                conn.execute_batch("ALTER TABLE sales ADD COLUMN addon_offers_json TEXT NOT NULL DEFAULT '[]';")?;
+            }
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS winback_offers (
+               code TEXT PRIMARY KEY,
+               customer_id TEXT NOT NULL,
+               customer_name TEXT NOT NULL DEFAULT '',
+               customer_phone TEXT NOT NULL DEFAULT '',
+               pct INTEGER NOT NULL,
+               expires_at TEXT NOT NULL,
+               redeemed_sale_id TEXT
+             );
+             PRAGMA user_version = 5;",
+        )?;
+        tx.commit()?;
+    }
     Ok(())
 }
 

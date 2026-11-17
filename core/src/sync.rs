@@ -140,6 +140,10 @@ struct WireSale<'a> {
     points_earned: i64,
     points_redeemed: i64,
     tax_by_rate_id: &'a std::collections::BTreeMap<String, i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offer_code: Option<&'a str>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    addon_offers: &'a [crate::receipt::AddonOffer],
 }
 
 impl<'a> From<&'a Sale> for WireSale<'a> {
@@ -163,6 +167,8 @@ impl<'a> From<&'a Sale> for WireSale<'a> {
             points_earned: s.points_earned,
             points_redeemed: s.points_redeemed,
             tax_by_rate_id: &s.tax_by_rate_id,
+            offer_code: s.offer_code.as_deref(),
+            addon_offers: &s.addon_offers,
         }
     }
 }
@@ -823,6 +829,8 @@ mod tests {
             points_earned: 0,
             points_redeemed: 0,
             tax_by_rate_id: Default::default(),
+            offer_code: None,
+            addon_offers: vec![],
         }
     }
 

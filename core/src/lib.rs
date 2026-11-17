@@ -14,6 +14,7 @@ pub mod copilot;
 pub mod currency;
 pub mod db;
 pub mod escpos;
+pub mod grow;
 pub mod insights;
 pub mod inventory;
 pub mod loyalty;

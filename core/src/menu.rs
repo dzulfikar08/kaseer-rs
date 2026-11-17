@@ -41,6 +41,36 @@ pub struct MenuPayload {
     pub categories: Vec<String>,
     #[serde(default)]
     pub products: Vec<MenuProduct>,
+    /// Owner's register switches from Kaseer Cloud (absent from the companion).
+    #[serde(default)]
+    pub growth: Option<MenuGrowth>,
+    /// Live win-back codes, so the register can redeem one offline.
+    #[serde(default)]
+    pub offers: Option<Vec<MenuOffer>>,
+    /// The cloud's add-on pairs.
+    #[serde(default)]
+    pub addons: Option<Vec<crate::repos::CloudAddon>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuGrowth {
+    pub addon_prompt: bool,
+    pub ask_phone: bool,
+    pub winback_discount_pct: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuOffer {
+    pub code: String,
+    pub customer_id: String,
+    #[serde(default)]
+    pub customer_name: String,
+    #[serde(default)]
+    pub customer_phone: String,
+    pub pct: i64,
+    pub expires_at: String,
 }
 
 /// Companion tax rate on the wire (`{"id","name","bps","inclusive"}`).
@@ -239,6 +269,27 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
         )?;
     }
     tx.commit()?;
+
+    // Grow: the owner's register switches and the live win-back codes,
+    // only when the source sends them (the LAN companion does not).
+    if let Some(growth) = &payload.growth {
+        let addons = payload.addons.clone().unwrap_or_default();
+        repo.set_grow_config(growth.addon_prompt, growth.ask_phone, growth.winback_discount_pct, &addons)?;
+    }
+    if let Some(offers) = &payload.offers {
+        let rows: Vec<crate::repos::WinbackOfferRow> = offers
+            .iter()
+            .map(|o| crate::repos::WinbackOfferRow {
+                code: o.code.clone(),
+                customer_id: o.customer_id.clone(),
+                customer_name: o.customer_name.clone(),
+                customer_phone: o.customer_phone.clone(),
+                pct: o.pct,
+                expires_at: o.expires_at.clone(),
+            })
+            .collect();
+        repo.replace_winback_offers(&rows)?;
+    }
 
     // Files to fetch: anything whose path just moved, plus anything whose
     // local copy is missing (heals failed downloads on the next pull).
