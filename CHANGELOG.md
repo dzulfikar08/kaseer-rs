@@ -4,6 +4,10 @@ All notable changes to Kaseer are listed here. Versions follow [Semantic Version
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-17
+
+Shift, Inventory and Customers get the register's big-button treatment.
+
 ### Changed
 
 - Shift screen sized for touch: a big opening-float field with Rp 50.000 / 100.000 / 500.000

@@ -3325,7 +3325,7 @@ dependencies = [
 
 [[package]]
 name = "kaseer"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "embed-resource",
  "gpui-kit",
@@ -3339,7 +3339,7 @@ dependencies = [
 
 [[package]]
 name = "kaseer-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64",
  "chrono",
