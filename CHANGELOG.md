@@ -2,6 +2,14 @@
 
 All notable changes to Kaseer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- Shift screen sized for touch: a big opening-float field with Rp 50.000 / 100.000 / 500.000
+  buttons and an 84px Open shift button; a 64px Close shift button; closing the drawer counts
+  each banknote with − / + buttons.
+
 ## [0.4.0] - 2026-11-17
 
 The register is redesigned for touch screens: big buttons everywhere a cashier taps.

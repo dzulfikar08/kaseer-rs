@@ -11,7 +11,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     dialog::{DialogAction, DialogClose, DialogFooter},
     input::{Input, InputEvent, InputState},
@@ -19,7 +19,8 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Context, Div, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div, px,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, div, px,
 };
 use kaseer_core::currency::{Currency, currency_by_code};
 
@@ -64,7 +65,7 @@ impl ShiftScreen {
         let cur = Self::currency_of(&repo);
         let repo = Arc::new(Mutex::new(repo));
 
-        let float = cx.new(|cx| InputState::new(window, cx).placeholder("Opening float (Rp)"));
+        let float = cx.new(|cx| InputState::new(window, cx).placeholder("0"));
         let enter_subscription = cx.subscribe_in(&float, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 this.try_open(window, cx);
@@ -212,7 +213,12 @@ impl ShiftScreen {
     /// No shift open: a centered card with the float input, quick amounts,
     /// and the open command.
     fn render_open_panel(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
         let float_valid = parse_float(self.float.read(cx).value().as_ref(), self.cur).is_some();
+        let hover = theme.secondary_hover;
+        let (primary, primary_hover, on_primary) =
+            (theme.primary, theme.primary_hover, theme.primary_foreground);
         div()
             .size_full()
             .flex()
@@ -221,34 +227,68 @@ impl ShiftScreen {
             .child(
                 v_flex()
                     .w_full()
-                    .max_w(px(460.))
-                    .gap(px(12.))
-                    .p(px(16.))
-                    .m(px(12.))
-                    .rounded(crate::theme::CARD_RADIUS)
-                    .bg(cx.theme().secondary)
+                    .max_w(px(560.))
+                    .gap(px(16.))
+                    .p(px(28.))
+                    .m(px(16.))
+                    .rounded(touch::RADIUS_LG)
+                    .bg(theme.secondary)
                     .border_1()
-                    .border_color(cx.theme().border)
+                    .border_color(theme.border)
                     .child(
                         div()
-                            .text_size(metrics::FONT_TITLE)
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(SharedString::from("Open shift")),
+                            .text_size(px(26.))
+                            .font_weight(FontWeight::BOLD)
+                            .child("Open shift"),
                     )
                     .child(
                         div()
-                            .text_size(metrics::FONT_BODY)
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(
-                                "Count an opening float into the drawer to start selling.",
-                            )),
+                            .text_size(touch::FONT_BODY)
+                            .text_color(theme.muted_foreground)
+                            .child("Count the opening float into the drawer to start selling."),
                     )
-                    .child(Input::new(&self.float).id("shift-float").w_full())
-                    .child(h_flex().gap_2().children(QUICK_FLOAT.iter().map(|q| {
-                        Button::new(SharedString::from(format!("quick-float-{q}")))
-                            .label(money_str(*q, self.cur))
-                            .secondary()
-                            .small()
+                    .child(
+                        h_flex()
+                            .h(px(64.))
+                            .px(px(18.))
+                            .gap(px(14.))
+                            .items_center()
+                            .rounded(touch::RADIUS)
+                            .bg(theme.background)
+                            .border_1()
+                            .border_color(crate::theme::border_strong())
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(touch::FONT_LABEL)
+                                    .text_color(crate::theme::text_dim())
+                                    .child("Opening float"),
+                            )
+                            .child(
+                                Input::new(&self.float)
+                                    .id("shift-float")
+                                    .appearance(false)
+                                    .flex_1()
+                                    .h(px(44.))
+                                    .text_size(px(24.))
+                                    .line_height(px(32.)),
+                            ),
+                    )
+                    .child(div().grid().grid_cols(3).gap(px(10.)).children(QUICK_FLOAT.iter().map(|q| {
+                        div()
+                            .id(SharedString::from(format!("quick-float-{q}")))
+                            .cursor_pointer()
+                            .h(touch::TAP)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(touch::RADIUS)
+                            .bg(theme.muted)
+                            .hover(move |style| style.bg(hover))
+                            .active(|style| style.opacity(0.75))
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(super::money_text(money_str(*q, self.cur)))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.float.update(cx, |state, cx| {
                                     state.set_value(q.to_string(), window, cx);
@@ -256,15 +296,33 @@ impl ShiftScreen {
                             }))
                     })))
                     .child(
-                        Button::new("open-shift")
-                            .label("Open shift")
-                            .primary()
-                            .large()
-                            .w_full()
-                            .disabled(!float_valid)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.try_open(window, cx);
-                            })),
+                        h_flex()
+                            .id("open-shift")
+                            .mt(px(4.))
+                            .h(touch::TAP_XL)
+                            .items_center()
+                            .justify_center()
+                            .rounded(touch::RADIUS_LG)
+                            .text_size(touch::FONT_ACTION)
+                            .font_weight(FontWeight::BOLD)
+                            .map(|button| {
+                                if float_valid {
+                                    button
+                                        .cursor_pointer()
+                                        .bg(primary)
+                                        .text_color(on_primary)
+                                        .hover(move |style| style.bg(primary_hover))
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.try_open(window, cx);
+                                        }))
+                                } else {
+                                    button
+                                        .border_1()
+                                        .border_color(theme.border)
+                                        .text_color(crate::theme::text_dim())
+                                }
+                            })
+                            .child("Open shift"),
                     ),
             )
     }
@@ -290,12 +348,12 @@ impl ShiftScreen {
                         h_flex()
                             .gap_2()
                             .items_baseline()
-                            .text_size(metrics::FONT_TITLE)
+                            .text_size(px(24.))
                             .font_weight(FontWeight::MEDIUM)
                             .child(SharedString::from("Shift"))
                             .child(
                                 div()
-                                    .text_size(metrics::FONT_BODY)
+                                    .text_size(crate::theme::touch::FONT_LABEL)
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(cx.theme().muted_foreground)
                                     .child(SharedString::from(format!(
@@ -308,7 +366,7 @@ impl ShiftScreen {
                             .label("Refresh")
                             .icon(IconName::RotateCw)
                             .ghost()
-                            .small()
+                            .h(crate::theme::touch::TAP_SM)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let _ = this.reload(cx);
                             })),
@@ -337,17 +395,30 @@ impl ShiftScreen {
                     .justify_between()
                     .child(
                         div()
-                            .text_size(metrics::FONT_FOOTNOTE)
+                            .text_size(crate::theme::touch::FONT_LABEL)
                             .text_color(cx.theme().muted_foreground)
                             .child(SharedString::from(
                                 "Closing counts the drawer against expected cash and archives the shift.",
                             )),
                     )
                     .child(
-                        Button::new("close-shift-open")
-                            .label("Close shift…")
-                            .danger()
-                            .small()
+                        h_flex()
+                            .id("close-shift-open")
+                            .cursor_pointer()
+                            .flex_none()
+                            .h(px(64.))
+                            .px(px(28.))
+                            .gap(px(10.))
+                            .items_center()
+                            .rounded(crate::theme::touch::RADIUS_LG)
+                            .bg(cx.theme().danger.opacity(0.16))
+                            .border_1()
+                            .border_color(cx.theme().danger.opacity(0.5))
+                            .text_color(cx.theme().danger)
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .hover(|style| style.opacity(0.85))
+                            .child("Close shift…")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_close_dialog(window, cx);
                             })),
@@ -446,18 +517,26 @@ impl ShiftScreen {
             let ok_screen = screen.clone();
             dialog
                 .title("Close shift: count the drawer")
-                .w(px(560.))
+                .w(px(660.))
                 .bg(surface)
                 .child(view.clone())
                 .footer(
                     DialogFooter::new()
                         .child(
-                            DialogClose::new()
-                                .trigger(|button| button.label("Cancel").ghost().small()),
+                            DialogClose::new().trigger(|button| {
+                                button.label("Cancel").ghost().h(crate::theme::touch::TAP).px(px(24.))
+                            }),
                         )
                         .child(
                             DialogAction::new()
-                                .child(Button::new("ok").label("Confirm close").primary().small()),
+                                .child(
+                                    Button::new("ok")
+                                        .label("Confirm close")
+                                        .primary()
+                                        .h(crate::theme::touch::TAP)
+                                        .px(px(28.))
+                                        .text_size(px(17.)),
+                                ),
                         ),
                 )
                 .on_ok(move |_, window, cx| {
@@ -540,26 +619,68 @@ impl CloseShiftDialog {
         minor: i64,
         input: &Entity<InputState>,
     ) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
         let count = Self::count_of(input.read(cx));
+        let hover = theme.secondary_hover;
+        let step = |id: String, icon: IconName, delta: i64| {
+            let input = input.clone();
+            div()
+                .id(SharedString::from(id))
+                .cursor_pointer()
+                .size(touch::TAP_SM)
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(10.))
+                .bg(theme.secondary)
+                .hover(move |style| style.bg(hover))
+                .active(|style| style.opacity(0.7))
+                .child(Icon::new(icon).with_size(px(20.)))
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    let next = (Self::count_of(input.read(cx)) + delta).max(0);
+                    input.update(cx, |state, cx| {
+                        state.set_value(if next == 0 { String::new() } else { next.to_string() }, window, cx)
+                    });
+                    cx.notify();
+                }))
+        };
         h_flex()
-            .gap(px(8.))
+            .gap(px(10.))
+            .items_center()
             .child(
                 super::money_text(money_str(minor, self.cur))
-                    .w_24()
-                    .text_size(metrics::FONT_BODY),
+                    .w(px(120.))
+                    .flex_none()
+                    .text_size(touch::FONT_BODY)
+                    .font_weight(FontWeight::SEMIBOLD),
             )
+            .child(step(format!("count-dec-{minor}"), IconName::Minus, -1))
             .child(
-                Input::new(input)
-                    .id(SharedString::from(format!("shift-count-{minor}")))
-                    .small()
-                    .w_full(),
+                div()
+                    .w(px(80.))
+                    .h(touch::TAP_SM)
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(crate::theme::border_strong())
+                    .child(
+                        Input::new(input)
+                            .id(SharedString::from(format!("shift-count-{minor}")))
+                            .appearance(false)
+                            .text_size(px(18.)),
+                    ),
             )
+            .child(step(format!("count-inc-{minor}"), IconName::Plus, 1))
             .child(
                 super::money_text(money_str(minor * count, self.cur))
-                    .w_24()
+                    .flex_1()
                     .text_right()
-                    .text_size(metrics::FONT_BODY)
-                    .text_color(cx.theme().muted_foreground),
+                    .text_size(touch::FONT_BODY)
+                    .text_color(theme.muted_foreground),
             )
     }
 }
@@ -656,7 +777,7 @@ fn ledger_row(
         .justify_between()
         .child(
             div()
-                .text_size(metrics::FONT_BODY)
+                .text_size(crate::theme::touch::FONT_LABEL)
                 .when(strong, |this| this.font_weight(FontWeight::MEDIUM))
                 .text_color(if strong {
                     cx.theme().foreground
@@ -667,7 +788,7 @@ fn ledger_row(
         )
         .child(
             super::money_text(value)
-                .text_size(metrics::FONT_BODY)
+                .text_size(crate::theme::touch::FONT_LABEL)
                 .when(strong, |this| this.font_weight(FontWeight::MEDIUM)),
         )
 }
