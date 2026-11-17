@@ -25,13 +25,13 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::searchable_list::SearchableListItem;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt,
+    ActiveTheme as _, Icon, IndexPath, Sizable as _, WindowExt,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::prelude::StyledImage as _;
 use gpui_kit::{
     Anchor, AppContext as _, Context, Entity, EventEmitter, FontWeight, Hsla,
-    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Pixels, Render, SharedString,
+    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
 use kaseer_core::bundles::{BundlePair, co_purchase_pairs, partner_suggestions};
@@ -96,6 +96,8 @@ pub struct RegisterScreen {
     /// The attached customer's visit summary, keyed by customer id so it
     /// is queried once per attach, not per frame.
     recognition: Option<(String, Recognition)>,
+    /// Clear was tapped once; the next tap empties the cart.
+    clear_armed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -150,6 +152,7 @@ impl RegisterScreen {
             pending_menu_rev: None,
             bundle_pairs: Vec::new(),
             recognition: None,
+            clear_armed: false,
             _subscriptions: Vec::new(),
         };
 
@@ -458,6 +461,7 @@ impl RegisterScreen {
     }
 
     fn add_product(&mut self, product: &Product, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_armed = false;
         match cart::add_to_cart(&self.cart, &product.addable(), 1.0) {
             Ok(next) => {
                 self.cart = next;
@@ -470,17 +474,13 @@ impl RegisterScreen {
     }
 
     fn set_line_qty(&mut self, line_id: &str, qty: f64, cx: &mut Context<Self>) {
+        self.clear_armed = false;
         // At the 9_999 cap an extra + is ignored rather than crashing the
         // register (the web version would panic inside its state updater).
         if let Ok(next) = cart::set_line_qty(&self.cart, line_id, qty) {
             self.cart = next;
             cx.notify();
         }
-    }
-
-    fn remove_line(&mut self, line_id: &str, cx: &mut Context<Self>) {
-        self.cart = cart::remove_line(&self.cart, line_id);
-        cx.notify();
     }
 
     fn apply_order_percent(&mut self, cx: &mut Context<Self>) {
@@ -491,6 +491,25 @@ impl RegisterScreen {
             .unwrap_or(0);
         self.cart =
             cart::set_order_discount(&self.cart, (bps > 0).then_some(Discount::Percent { bps }));
+        cx.notify();
+    }
+
+    fn set_order_percent(&mut self, bps: i64, window: &mut Window, cx: &mut Context<Self>) {
+        self.cart = cart::set_order_discount(&self.cart, Some(Discount::Percent { bps }));
+        let label = percent_label(bps);
+        self.percent
+            .update(cx, |input, cx| input.set_value(label, window, cx));
+        cx.notify();
+    }
+
+    /// First tap arms, second tap empties the cart (and its discount).
+    fn tap_clear(&mut self, cx: &mut Context<Self>) {
+        if self.clear_armed {
+            self.cart = cart::clear_cart(&self.cart);
+            self.clear_armed = false;
+        } else {
+            self.clear_armed = true;
+        }
         cx.notify();
     }
 
@@ -520,15 +539,7 @@ impl RegisterScreen {
         self.pay_dialog.update(cx, |dialog, cx| {
             dialog.reset(total_minor, customer, loyalty, currency, window, cx)
         });
-        let pay = self.pay_dialog.clone();
-        let surface = cx.theme().popover;
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title("Payment")
-                .w(px(640.))
-                .bg(surface)
-                .child(pay.clone())
-        });
+        open_pay_dialog(self.pay_dialog.clone(), window, cx);
     }
 
     fn on_pay_event(&mut self, event: &PayEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -545,7 +556,11 @@ impl RegisterScreen {
                 self.recognition = None;
                 self.open_receipt(sale, window, cx);
             }
-            Err(message) => window.push_notification(Notification::error(message), cx),
+            Err(message) => {
+                // Let the cashier fix it and try again.
+                self.pay_dialog.update(cx, |pay, _| pay.unsettle());
+                window.push_notification(Notification::error(message), cx);
+            }
         }
     }
 
@@ -692,28 +707,90 @@ impl RegisterScreen {
     // and the cart column is anchored by the sale's money: suggestions from
     // real co-purchase history, then the one gradient in the app, the total.
 
-    fn render_catalog(&self, cx: &Context<Self>, products: &[Product]) -> impl IntoElement {
+    fn render_catalog(&self, cx: &Context<Self>, products: &[Product], columns: u16) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let shift_pill = match &self.active_shift {
+            Some(shift) => h_flex()
+                .flex_none()
+                .h(px(60.))
+                .px(px(18.))
+                .gap(px(10.))
+                .items_center()
+                .rounded(touch::RADIUS)
+                .bg(theme.secondary)
+                .text_size(touch::FONT_LABEL)
+                .text_color(theme.muted_foreground)
+                .child(div().size(px(10.)).rounded(px(999.)).bg(theme.success))
+                .child(SharedString::from(format!(
+                    "Shift open since {}",
+                    clock_of(&shift.opened_at)
+                )))
+                .into_any_element(),
+            None => h_flex()
+                .id("shift-pill-open")
+                .cursor_pointer()
+                .flex_none()
+                .h(px(60.))
+                .px(px(18.))
+                .gap(px(10.))
+                .items_center()
+                .rounded(touch::RADIUS)
+                .border_1()
+                .border_color(theme.warning.opacity(0.5))
+                .text_size(touch::FONT_LABEL)
+                .text_color(theme.warning)
+                .child(div().size(px(10.)).rounded(px(999.)).bg(theme.warning))
+                .child("No shift open")
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(RegisterEvent::OpenShift)))
+                .into_any_element(),
+        };
         v_flex()
-            .flex_grow(1.6)
+            .flex_1()
             .min_w_0()
-            .gap(px(10.))
-            // The input's editor renders size_full: placed bare in a flex
-            // column it would take the whole column height and starve the
-            // grid. The fixed-height wrapper pins it to one line.
+            .gap(px(14.))
             .child(
-                div()
-                    .h(px(32.))
-                    .flex_shrink_0()
-                    .overflow_hidden()
-                    .child(Input::new(&self.query).id("search")),
+                h_flex()
+                    .flex_none()
+                    .gap(px(12.))
+                    // The input's editor renders size_full: placed bare in a
+                    // flex column it would take the whole column height and
+                    // starve the grid. The fixed-height frame pins it.
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(60.))
+                            .px(px(18.))
+                            .gap(px(14.))
+                            .items_center()
+                            .overflow_hidden()
+                            .rounded(touch::RADIUS)
+                            .bg(theme.background)
+                            .border_1()
+                            .border_color(crate::theme::border_strong())
+                            .child(
+                                Icon::new(IconName::ScanBarcode)
+                                    .with_size(px(22.))
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .child(
+                                Input::new(&self.query)
+                                    .id("search")
+                                    .appearance(false)
+                                    .text_size(px(17.))
+                                    .flex_1(),
+                            ),
+                    )
+                    .child(shift_pill),
             )
             .child(self.render_category_chips(cx))
-            .child(self.render_product_grid(cx, products))
+            .child(self.render_product_grid(cx, products, columns))
     }
 
-    /// One filter chip. Category chips lead with their hue dot so the chip
-    /// row doubles as the colour key for the grid. The active chip is the
-    /// one accented element in the row (soft fill, accent outline).
+    /// One category button. Category buttons lead with their hue dot so the
+    /// row doubles as the colour key for the grid; the active one is the
+    /// accent-filled button.
     fn render_category_chip(
         &self,
         cx: &Context<Self>,
@@ -723,32 +800,31 @@ impl RegisterScreen {
         active: bool,
         category: Option<String>,
     ) -> impl IntoElement {
+        use crate::theme::touch;
         let theme = cx.theme();
+        let hover = theme.secondary_hover;
         h_flex()
             .id(id)
             .cursor_pointer()
             .flex_none()
-            .h(px(26.))
-            .px(px(10.))
-            .gap(px(6.))
+            .h(touch::TAP)
+            .px(px(22.))
+            .gap(px(10.))
             .items_center()
-            .rounded(px(999.))
-            .border_1()
-            .text_size(crate::theme::metrics::FONT_BODY)
+            .rounded(touch::RADIUS)
+            .text_size(touch::FONT_BODY)
+            .font_weight(FontWeight::MEDIUM)
             .map(|chip| {
                 if active {
-                    chip.bg(crate::theme::accent_soft())
-                        .border_color(theme.accent)
-                        .text_color(theme.foreground)
-                        .font_weight(FontWeight::MEDIUM)
+                    chip.bg(theme.primary).text_color(theme.primary_foreground)
                 } else {
-                    chip.border_color(crate::theme::border_strong())
+                    chip.bg(theme.secondary)
                         .text_color(theme.muted_foreground)
-                        .hover(|style| style.border_color(theme.muted_foreground))
+                        .hover(move |style| style.bg(hover))
                 }
             })
             .when_some(hue, |chip, hue| {
-                chip.child(div().size(px(6.)).flex_none().rounded(px(999.)).bg(hue))
+                chip.child(div().size(px(10.)).flex_none().rounded(px(999.)).bg(hue))
             })
             .child(label)
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -759,11 +835,10 @@ impl RegisterScreen {
 
     fn render_category_chips(&self, cx: &Context<Self>) -> impl IntoElement {
         let mut row = h_flex()
-            .gap(px(6.))
+            .id("category-row")
+            .gap(px(10.))
             .flex_none()
-            .flex_shrink_0()
-            .h(px(28.))
-            .overflow_x_scrollbar();
+            .overflow_x_scroll();
         row = row.child(self.render_category_chip(
             cx,
             "cat-all".into(),
@@ -785,28 +860,25 @@ impl RegisterScreen {
         row
     }
 
-    fn render_product_grid(&self, cx: &Context<Self>, products: &[Product]) -> impl IntoElement {
+    fn render_product_grid(&self, cx: &Context<Self>, products: &[Product], columns: u16) -> impl IntoElement {
         if products.is_empty() {
             return div()
                 .flex_grow(1.)
                 .min_h_0()
                 .pt_8()
                 .text_center()
+                .text_size(crate::theme::touch::FONT_BODY)
                 .text_color(cx.theme().muted_foreground)
                 .child("No products match.")
                 .into_any_element();
         }
-        // The web grid is `repeat(auto-fill, minmax(170px, 1fr))`; gpui
-        // tracks are fixed, so 4 columns at the 1200px window floor keeps
-        // every tile at or above the 170px minimum.
-        // Rows pack to the top at their content height: stretched rows
-        // left uneven gaps once tiles lost the barcode line, and a single
-        // search hit would balloon to the full grid height.
+        // Rows pack to the top at their content height, so a single search
+        // hit stays tile-sized instead of ballooning to the grid height.
         let mut grid = div()
             .grid()
-            .grid_cols(4)
+            .grid_cols(columns)
             .content_start()
-            .gap(px(8.))
+            .gap(px(12.))
             .flex_grow(1.)
             .min_h_0()
             .overflow_y_scrollbar();
@@ -845,6 +917,9 @@ impl RegisterScreen {
         })
     }
 
+    /// A product tile: the whole tile is the tap target. Name (two lines),
+    /// price at the bottom, the category hue as a 6px band on the left, an
+    /// in-cart count badge and the knowledge button in the top-right corner.
     fn render_product_card(
         &self,
         product: &Product,
@@ -852,33 +927,30 @@ impl RegisterScreen {
         in_cart: Option<f64>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
+        use crate::theme::touch;
         let theme = cx.theme();
         let known = has_knowledge(product);
         let hue = crate::theme::category_hue(&self.categories, &product.category);
         let low_note = self.low_stock_note(product);
-        // Photo band (the web `.band`): pulled from the companion into the
-        // ledger's images/ dir. An empty path or a not-yet-downloaded file
-        // keeps the text-only card until a later pull lands the file.
         let photo = self.photo_path(product);
         let body = v_flex()
             .w_full()
             .flex_grow(1.)
             .gap(px(8.))
-            .pt(px(10.))
-            .pb(px(10.))
-            .pl(px(10.))
-            .pr(px(10.))
+            .pt(px(14.))
+            .pb(px(14.))
+            .pl(px(16.))
+            .pr(px(14.))
             // Corner overlays (badge, knowledge button) never sit on the
             // name: reserve their width on the first lines.
-            .when(known || in_cart.is_some(), |body| body.pr(px(30.)))
-            .when(known && in_cart.is_some(), |body| body.pr(px(56.)))
+            // The count badge sits in the top-right corner: keep the name
+            // clear of it. The knowledge button sits bottom-right.
+            .when(in_cart.is_some(), |body| body.pr(px(50.)))
             .child(
                 div()
-                    .text_size(crate::theme::metrics::FONT_EMPHASIS)
-                    .line_height(px(18.))
-                    .font_weight(FontWeight::MEDIUM)
-                    // The name is the tile's hero: two lines before the
-                    // ellipsis, never shredded at narrow widths.
+                    .text_size(touch::FONT_TILE)
+                    .line_height(px(23.))
+                    .font_weight(FontWeight::SEMIBOLD)
                     .line_clamp(2)
                     .child(SharedString::from(product.name.clone())),
             )
@@ -889,29 +961,30 @@ impl RegisterScreen {
                     .items_end()
                     .justify_between()
                     .child(
+                        super::money_text(fmt_money(product.price_minor, self.currency))
+                            .flex_none()
+                            .text_size(px(19.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
                         div()
                             .min_w_0()
                             .truncate()
-                            .text_size(crate::theme::metrics::FONT_FOOTNOTE)
+                            .text_size(px(13.))
                             .text_color(theme.danger)
                             .when_some(low_note, |note, text| note.child(SharedString::from(text))),
-                    )
-                    .child(
-                        super::money_text(fmt_money(product.price_minor, self.currency))
-                            .flex_none()
-                            .text_size(crate::theme::metrics::FONT_EMPHASIS)
-                            .text_color(theme.muted_foreground),
                     ),
             );
-        // Category edge: the shell is filled with the hue and the surface
-        // sits 4px in from its left, so the hue reads as a band inside the
-        // rounded border. (GPUI clips overflow to a rectangle, so a 4px
-        // child pinned to the left would poke out square at the corners.)
-        let inner_radius = crate::theme::CARD_RADIUS - px(1.);
+        // Category band: the shell is filled with the hue and the surface
+        // sits 6px in from its left, so the hue reads as a band inside the
+        // rounded corners (GPUI clips overflow to a rectangle, so a child
+        // pinned to the left would poke out square at the corners).
+        let inner_radius = touch::RADIUS_LG - px(1.);
         let surface = v_flex()
             .flex_1()
             .min_w_0()
-            .ml(px(3.))
+            .ml(px(6.))
             .bg(theme.secondary)
             .rounded_tr(inner_radius)
             .rounded_br(inner_radius)
@@ -920,24 +993,22 @@ impl RegisterScreen {
                     img(path)
                         .id(SharedString::from(format!("product-img-{}", product.id)))
                         .w_full()
-                        .h(px(96.))
+                        .h(px(104.))
                         .flex_none()
                         .rounded_tr(inner_radius)
                         .object_fit(ObjectFit::Cover),
                 ),
-                // No photo yet: the product's initials on the raised
-                // surface, an honest placeholder rather than a stock image.
                 None if banded => surface.child(
                     div()
                         .w_full()
-                        .h(px(96.))
+                        .h(px(104.))
                         .flex_none()
                         .flex()
                         .items_center()
                         .justify_center()
                         .rounded_tr(inner_radius)
                         .bg(theme.muted)
-                        .text_size(crate::theme::metrics::FONT_DISPLAY)
+                        .text_size(px(26.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(crate::theme::text_dim())
                         .child(SharedString::from(initials(&product.name))),
@@ -950,20 +1021,20 @@ impl RegisterScreen {
             .size_full()
             .items_stretch()
             .cursor_pointer()
-            .min_h(px(88.))
+            .min_h(touch::TILE_H)
             .overflow_hidden()
-            .rounded(crate::theme::CARD_RADIUS)
+            .rounded(touch::RADIUS_LG)
             .bg(hue)
-            .border_1()
+            .border_2()
             .map(|card| {
                 if in_cart.is_some() {
                     card.border_color(theme.accent)
                 } else {
-                    card.border_color(crate::theme::tile_border())
+                    card.border_color(theme.secondary)
                         .hover(|style| style.border_color(crate::theme::accent_dim()))
                 }
             })
-            .active(|style| style.opacity(0.85))
+            .active(|style| style.opacity(0.8))
             .on_click(cx.listener({
                 let product_id = product.id.clone();
                 move |this, _, window, cx| {
@@ -979,32 +1050,28 @@ impl RegisterScreen {
         let badge = in_cart.map(|qty| {
             div()
                 .absolute()
-                .top(px(8.))
-                .right(px(8.))
-                .h(px(20.))
-                .min_w(px(20.))
-                .px(px(5.))
+                .top(px(10.))
+                .right(px(10.))
+                .h(px(34.))
+                .min_w(px(34.))
+                .px(px(8.))
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded(px(999.))
-                // Atur's primary: the light accent with black digits.
                 .bg(theme.accent)
                 .text_color(theme.accent_foreground)
                 .font_family(crate::theme::FONT_MONEY)
                 .font_features(crate::theme::tabular())
-                .text_size(crate::theme::metrics::FONT_FOOTNOTE)
-                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(px(17.))
+                .font_weight(FontWeight::BOLD)
                 .child(SharedString::from(qty_label(qty)))
         });
         let knowledge = known.then(|| {
-            // The web `.kinfo`: a small corner button floating over the
-            // card's top-right, opening a click-away knowledge popover. It
-            // steps left of the quantity badge when both are present.
             div()
                 .absolute()
-                .top(px(6.))
-                .right(px(if in_cart.is_some() { 32. } else { 6. }))
+                .bottom(px(10.))
+                .right(px(10.))
                 .child(self.render_knowledge_popover(product, cx))
         });
         div()
@@ -1028,8 +1095,9 @@ impl RegisterScreen {
             .trigger(
                 Button::new(button_id)
                     .secondary()
-                    .small()
-                    .icon(Icon::new(IconName::Info).with_size(px(13.))),
+                    .w(px(36.))
+                    .h(px(36.))
+                    .icon(Icon::new(IconName::Info).with_size(px(18.))),
             )
             .content(move |_, _, _| knowledge_peek_card(product.clone(), muted, foreground))
     }
@@ -1039,25 +1107,24 @@ impl RegisterScreen {
         cx: &Context<Self>,
         totals: &CartTotals,
         customer: Option<Customer>,
-        amount_size: Pixels,
     ) -> impl IntoElement {
+        use crate::theme::touch;
         let suggestions = self.suggestions();
         v_flex()
-            .flex_grow(1.)
-            // Let the panel shrink with the window row instead of sizing to
-            // its content: unconstrained, the lines list keeps its content
-            // height and its scroll hitbox spills over totals/pay.
+            .w(touch::CART_W)
+            .flex_none()
+            .h_full()
+            // Let the column shrink with the window instead of sizing to its
+            // content: unconstrained, the lines list keeps its content
+            // height and its scroll hitbox spills over totals and Pay.
             .min_h_0()
             .overflow_hidden()
-            .max_w(px(400.))
-            .min_w_0()
-            .gap(px(10.))
-            .p(px(12.))
-            .rounded(crate::theme::CARD_RADIUS)
-            .bg(cx.theme().secondary)
-            .border_1()
+            .gap(px(12.))
+            .p(px(16.))
+            .bg(cx.theme().sidebar)
+            .border_l_1()
             .border_color(cx.theme().border)
-            .child(self.render_cart_header(cx))
+            .child(self.render_cart_header())
             .when_some(customer, |panel, customer| {
                 panel.child(self.render_recognition(&customer, cx))
             })
@@ -1065,31 +1132,23 @@ impl RegisterScreen {
             .when(!suggestions.is_empty(), |panel| {
                 panel.child(self.render_suggestions(suggestions, cx))
             })
-            .child(self.render_total_block(cx, totals, amount_size))
+            .when(!self.cart.lines.is_empty(), |panel| {
+                panel.child(self.render_cart_actions(totals, cx))
+            })
+            .child(self.render_total_block(cx, totals))
     }
 
-    fn render_cart_header(&self, cx: &Context<Self>) -> impl IntoElement {
-        h_flex()
-            .justify_between()
-            .items_center()
-            .gap_2()
+    /// The customer picker, full width: walk-in by default, a tap away
+    /// from attaching a member.
+    fn render_cart_header(&self) -> impl IntoElement {
+        div()
             .flex_none()
+            .w_full()
             .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .truncate()
-                    .text_size(crate::theme::metrics::FONT_FOOTNOTE)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
-                    .child("CURRENT SALE"),
-            )
-            // Walk-in stays quiet: the attach control is the whole header.
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(170.))
-                    .child(Select::new(&self.customer_select)),
+                Select::new(&self.customer_select)
+                    .large()
+                    .h(crate::theme::touch::TAP)
+                    .rounded(crate::theme::touch::RADIUS),
             )
     }
 
@@ -1175,170 +1234,285 @@ impl RegisterScreen {
     }
 
     fn render_cart_lines(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
         if self.cart.lines.is_empty() {
-            // One line and the two keys that start and finish a sale. The
-            // bottom of the column carries the weight, not this hint.
             return v_flex()
                 .flex_grow(1.)
                 .min_h_0()
                 .items_center()
                 .justify_center()
-                .gap(px(10.))
+                .gap(px(12.))
+                .child(
+                    Icon::new(IconName::ScanBarcode)
+                        .with_size(px(40.))
+                        .text_color(crate::theme::text_dim()),
+                )
                 .child(
                     div()
-                        .text_size(crate::theme::metrics::FONT_EMPHASIS)
+                        .text_size(touch::FONT_BODY)
                         .text_color(cx.theme().muted_foreground)
-                        .child("Scan a barcode or tap a product to start."),
+                        .child("Scan a barcode or tap a product."),
                 )
                 .child(
                     h_flex()
                         .gap(px(16.))
-                        .text_size(crate::theme::metrics::FONT_FOOTNOTE)
+                        .text_size(px(13.))
                         .text_color(crate::theme::text_dim())
                         .child(key_hint("Enter", "adds a scan", cx.theme().border))
                         .child(key_hint("F2", "takes payment", cx.theme().border)),
                 )
                 .into_any_element();
         }
-        // The discount row rides at the end of the lines it discounts; the
-        // free space falls below it, so suggestions and the total anchor
-        // the bottom of the column instead of a stranded input.
         let mut list = v_flex()
+            .id("cart-lines")
             .flex_grow(1.)
             .min_h_0()
-            .gap(px(2.))
+            .gap(px(8.))
             .overflow_y_scrollbar();
         for line in &self.cart.lines {
             list = list.child(self.render_cart_line(line, cx));
         }
-        list.child(div().pt(px(8.)).child(self.render_discount_row(cx)))
-            .into_any_element()
+        list.into_any_element()
     }
 
+    /// One cart line: name and unit price, a big − qty + stepper (− at one
+    /// removes the line), and the line total.
     fn render_cart_line(&self, line: &cart::CartLine, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
         let gross_minor = (line.unit_minor as f64 * line.qty).round() as i64;
-        let hue = self
-            .products
-            .iter()
-            .find(|p| p.id == line.product_id)
-            .map(|p| crate::theme::category_hue(&self.categories, &p.category));
+        let hover = theme.secondary_hover;
+        let step = |id: String, icon: IconName, qty: f64| {
+            let line_id = line.id.clone();
+            div()
+                .id(SharedString::from(id))
+                .cursor_pointer()
+                .size(touch::TAP_SM)
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(10.))
+                .hover(move |style| style.bg(hover))
+                .active(|style| style.opacity(0.7))
+                .child(Icon::new(icon).with_size(px(22.)))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_line_qty(&line_id, qty, cx)))
+        };
         h_flex()
-            .justify_between()
-            .gap_2()
-            .py(px(6.))
-            .border_b_1()
-            .border_color(cx.theme().border)
+            .flex_none()
+            .gap(px(10.))
+            .items_center()
+            .p(px(10.))
+            .pl(px(16.))
+            .rounded(touch::RADIUS)
+            .bg(theme.secondary)
             .child(
-                h_flex()
+                v_flex()
+                    .flex_1()
                     .min_w_0()
-                    .gap(px(10.))
-                    .items_start()
-                    // The same hue dot as the tile edge and chip: the cart
-                    // reads back to the grid region an item came from.
+                    .gap(px(2.))
                     .child(
                         div()
-                            .mt(px(6.))
-                            .size(px(6.))
-                            .flex_none()
-                            .rounded(px(999.))
-                            .when_some(hue, |dot, hue| dot.bg(hue)),
+                            .text_size(touch::FONT_ITEM)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .line_clamp(2)
+                            .child(SharedString::from(line.name.clone())),
                     )
                     .child(
-                        v_flex()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_size(crate::theme::metrics::FONT_EMPHASIS)
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .truncate()
-                                    .child(SharedString::from(line.name.clone())),
-                            )
-                            .child(
-                                super::money_text(format!(
-                                    "{} × {}",
-                                    fmt_money(line.unit_minor, self.currency),
-                                    qty_label(line.qty)
-                                ))
-                                .text_size(crate::theme::metrics::FONT_FOOTNOTE)
-                                .text_color(cx.theme().muted_foreground),
-                            ),
+                        super::money_text(fmt_money(line.unit_minor, self.currency))
+                            .text_size(px(14.))
+                            .text_color(theme.muted_foreground),
                     ),
             )
             .child(
                 h_flex()
                     .flex_none()
-                    .gap_1()
                     .items_center()
+                    .rounded(px(10.))
+                    .bg(theme.muted)
+                    .child(step(format!("qty-dec-{}", line.id), IconName::Minus, line.qty - 1.0))
                     .child(
-                        Button::new(SharedString::from(format!("qty-dec-{}", line.id)))
-                            .ghost()
-                            .small()
-                            .label("−")
-                            .on_click(cx.listener({
-                                let line_id = line.id.clone();
-                                let qty = line.qty - 1.0;
-                                move |this, _, _, cx| this.set_line_qty(&line_id, qty, cx)
-                            })),
+                        super::money_text(qty_label(line.qty))
+                            .min_w(px(28.))
+                            .text_center()
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::SEMIBOLD),
                     )
-                    // 96px holds Rp 999.999 in Plex Mono; nowrap keeps it
-                    // on one line.
-                    .child(
-                        super::money_text(fmt_money(gross_minor, self.currency))
-                            .w(px(88.))
-                            .text_right()
-                            .text_size(crate::theme::metrics::FONT_EMPHASIS),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("qty-inc-{}", line.id)))
-                            .ghost()
-                            .small()
-                            .label("+")
-                            .on_click(cx.listener({
-                                let line_id = line.id.clone();
-                                let qty = line.qty + 1.0;
-                                move |this, _, _, cx| this.set_line_qty(&line_id, qty, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("line-remove-{}", line.id)))
-                            .ghost()
-                            .small()
-                            .label("×")
-                            .on_click(cx.listener({
-                                let line_id = line.id.clone();
-                                move |this, _, _, cx| this.remove_line(&line_id, cx)
-                            })),
-                    ),
+                    .child(step(format!("qty-inc-{}", line.id), IconName::Plus, line.qty + 1.0)),
+            )
+            .child(
+                super::money_text(fmt_number(gross_minor, self.currency))
+                    .flex_none()
+                    .min_w(px(84.))
+                    .text_right()
+                    .text_size(touch::FONT_ITEM)
+                    .font_weight(FontWeight::SEMIBOLD),
             )
     }
 
-    fn render_discount_row(&self, cx: &Context<Self>) -> impl IntoElement {
+    /// Discount and Clear, the two whole-sale actions. Clear asks for a
+    /// second tap (the button turns red and says so) so a stray finger
+    /// cannot empty a full cart.
+    fn render_cart_actions(&self, totals: &CartTotals, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let hover = theme.secondary_hover;
+        let discount_label = match self.cart.order_discount {
+            Some(Discount::Percent { bps }) if totals.discount_minor > 0 => {
+                SharedString::from(format!("Discount {}%", percent_label(bps)))
+            }
+            _ => SharedString::from("Discount"),
+        };
+        let armed = self.clear_armed;
+        let danger = theme.danger;
+        let action = |id: &'static str| {
+            h_flex()
+                .id(id)
+                .cursor_pointer()
+                .flex_1()
+                .h(touch::TAP)
+                .gap(px(8.))
+                .items_center()
+                .justify_center()
+                .rounded(touch::RADIUS)
+                .text_size(touch::FONT_LABEL)
+                .font_weight(FontWeight::MEDIUM)
+                .active(|style| style.opacity(0.75))
+        };
         h_flex()
-            .gap_2()
-            .items_center()
             .flex_none()
+            .gap(px(8.))
             .child(
-                div()
-                    .w(px(120.))
-                    .child(Input::new(&self.percent).id("disc-percent")),
+                action("cart-discount")
+                    .bg(theme.secondary)
+                    .hover(move |style| style.bg(hover))
+                    .when(totals.discount_minor > 0, |button| {
+                        button.border_1().border_color(theme.accent)
+                    })
+                    .child(Icon::new(IconName::Percent).with_size(px(18.)))
+                    .child(discount_label)
+                    .on_click(cx.listener(|this, _, window, cx| this.open_discount(window, cx))),
             )
             .child(
-                Button::new("discount-apply")
-                    .label("Apply %")
-                    .on_click(cx.listener(|this, _, _, cx| this.apply_order_percent(cx))),
+                action("cart-clear")
+                    .text_color(danger)
+                    .map(|button| {
+                        if armed {
+                            button.bg(danger.opacity(0.18)).border_1().border_color(danger)
+                        } else {
+                            button.bg(theme.secondary).hover(move |style| style.bg(hover))
+                        }
+                    })
+                    .child(Icon::new(IconName::Trash).with_size(px(18.)))
+                    .child(if armed { "Tap again to clear" } else { "Clear" })
+                    .on_click(cx.listener(|this, _, _, cx| this.tap_clear(cx))),
             )
-            .when(self.cart.order_discount.is_some(), |row| {
-                row.child(
-                    Button::new("discount-clear")
-                        .small()
-                        .ghost()
-                        .label("Clear")
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.clear_order_percent(window, cx)),
+    }
+
+    /// Order discount: preset percentages as big buttons, a custom
+    /// percentage, and "No discount".
+    fn open_discount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        const PRESETS: [i64; 6] = [5, 10, 15, 20, 25, 50];
+        let register = cx.entity();
+        let percent = self.percent.clone();
+        let current = match self.cart.order_discount {
+            Some(Discount::Percent { bps }) => Some(bps),
+            _ => None,
+        };
+        window.open_dialog(cx, move |dialog, _, cx| {
+            use crate::theme::touch;
+            let theme = cx.theme();
+            let (surface, hover, primary, on_primary) =
+                (theme.secondary, theme.secondary_hover, theme.primary, theme.primary_foreground);
+            let mut grid = div().grid().grid_cols(3).gap(px(10.));
+            for pct in PRESETS {
+                let register = register.clone();
+                let selected = current == Some(pct * 100);
+                grid = grid.child(
+                    div()
+                        .id(SharedString::from(format!("disc-{pct}")))
+                        .cursor_pointer()
+                        .h(px(72.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(touch::RADIUS)
+                        .text_size(px(24.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .map(|key| {
+                            if selected {
+                                key.bg(primary).text_color(on_primary)
+                            } else {
+                                key.bg(surface).hover(move |style| style.bg(hover))
+                            }
+                        })
+                        .child(SharedString::from(format!("{pct}%")))
+                        .on_click(move |_, window, cx| {
+                            register.update(cx, |r, cx| r.set_order_percent(pct * 100, window, cx));
+                            window.close_dialog(cx);
+                        }),
+                );
+            }
+            let apply = {
+                let register = register.clone();
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                    register.update(cx, |r, cx| r.apply_order_percent(cx));
+                    window.close_dialog(cx);
+                }
+            };
+            let remove = {
+                let register = register.clone();
+                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                    register.update(cx, |r, cx| r.clear_order_percent(window, cx));
+                    window.close_dialog(cx);
+                }
+            };
+            dialog
+                .title("Discount on the whole sale")
+                .w(px(520.))
+                .child(
+                    v_flex()
+                        .gap(px(16.))
+                        .child(grid)
+                        .child(
+                            h_flex()
+                                .gap(px(10.))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .h(touch::TAP)
+                                        .px(px(14.))
+                                        .flex()
+                                        .items_center()
+                                        .rounded(touch::RADIUS)
+                                        .border_1()
+                                        .border_color(crate::theme::border_strong())
+                                        .child(
+                                            Input::new(&percent)
+                                                .id("disc-percent")
+                                                .appearance(false)
+                                                .text_size(px(18.)),
+                                        ),
+                                )
+                                .child(
+                                    Button::new("discount-apply")
+                                        .primary()
+                                        .h(touch::TAP)
+                                        .w(px(120.))
+                                        .label("Apply %")
+                                        .on_click(apply),
+                                ),
+                        )
+                        .child(
+                            Button::new("discount-clear")
+                                .ghost()
+                                .h(touch::TAP)
+                                .w_full()
+                                .label("No discount")
+                                .on_click(remove),
                         ),
                 )
-            })
+        });
     }
 
     /// "Often bought with": partners from real co-purchase history, with
@@ -1420,105 +1594,105 @@ impl RegisterScreen {
         card
     }
 
-    /// The total block: the sale's money and its one action. A recessed
-    /// well on the canvas colour inside the cart panel, the same layout
-    /// whether or not the sale is live so nothing jumps when the first item
-    /// lands. Only the Pay action carries the accent (Atur's primary
-    /// control: light gray, black type).
-    fn render_total_block(
-        &self,
-        cx: &Context<Self>,
-        totals: &CartTotals,
-        amount_size: Pixels,
-    ) -> impl IntoElement {
-        use crate::theme::metrics;
+    /// The total block: the sale's money and its one action, the same
+    /// layout whether or not the sale is live so nothing jumps when the
+    /// first item lands.
+    fn render_total_block(&self, cx: &Context<Self>, totals: &CartTotals) -> impl IntoElement {
+        use crate::theme::touch;
         let theme = cx.theme();
         let has_items = !self.cart.lines.is_empty();
         let has_shift = self.active_shift.is_some();
         let live = has_items && has_shift;
         let (strong, soft) = (theme.foreground, theme.muted_foreground);
         let units: f64 = self.cart.lines.iter().map(|line| line.qty).sum();
-        let row = |label: &'static str, value: String| {
+        let row = |label: String, value: String| {
             h_flex()
                 .justify_between()
-                .text_size(metrics::FONT_BODY)
+                .text_size(touch::FONT_LABEL)
                 .text_color(soft)
                 .child(label)
                 .child(super::money_text(value).text_right())
         };
         let note = match (has_shift, has_items) {
             (false, _) => Some("No open shift. Open one to take payment."),
-            (true, false) => Some("Add an item to take payment."),
+            (true, false) => None,
             (true, true) => None,
         };
         v_flex()
             .id("total-block")
             .flex_none()
-            .gap(px(6.))
-            .p(px(12.))
-            .rounded(metrics::RADIUS_LG)
-            .bg(theme.background)
-            .border_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .font_family(crate::theme::FONT_MONO)
-                    .text_size(metrics::FONT_CAPTION)
-                    .text_color(crate::theme::text_dim())
-                    .child(SharedString::from(plural_units(units).to_uppercase())),
-            )
-            .child(row("Subtotal", fmt_money(totals.gross_minor, self.currency)))
+            .gap(px(4.))
+            .child(row(
+                format!("Subtotal · {}", plural_units(units)),
+                fmt_money(totals.gross_minor, self.currency),
+            ))
             .when(totals.discount_minor > 0, |block| {
                 block.child(row(
-                    "Discount",
+                    "Discount".to_string(),
                     format!("-{}", fmt_money(totals.discount_minor, self.currency)),
                 ))
             })
-            .child(row("Tax", fmt_money(totals.tax_minor, self.currency)))
-            .child(div().h(px(1.)).my(px(4.)).bg(theme.border))
+            .child(row("Tax".to_string(), fmt_money(totals.tax_minor, self.currency)))
             .child(
                 h_flex()
+                    .mt(px(4.))
                     .justify_between()
                     .items_end()
                     .gap_2()
                     .child(
                         div()
-                            .pb(px(6.))
-                            .text_size(metrics::FONT_EMPHASIS)
-                            .font_weight(FontWeight::MEDIUM)
+                            .pb(px(8.))
+                            .text_size(touch::FONT_BODY)
                             .text_color(soft)
                             .child("Total"),
                     )
                     .child(
                         super::money_text(fmt_money(totals.total_minor, self.currency))
                             .text_right()
-                            .text_size(amount_size)
-                            .line_height(amount_size * 1.15)
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(touch::FONT_TOTAL)
+                            .line_height(touch::FONT_TOTAL * 1.15)
+                            .font_weight(FontWeight::BOLD)
                             .text_color(if has_items { strong } else { soft }),
                     ),
             )
             .when_some(note, |block, note| {
                 block.child(
                     div()
-                        .text_size(metrics::FONT_FOOTNOTE)
-                        .text_color(soft)
+                        .text_size(px(14.))
+                        .text_color(theme.warning)
                         .child(note),
                 )
             })
-            .child(div().pt(px(6.)).child(self.render_total_action(cx, live, has_shift)))
+            .child(
+                div()
+                    .pt(px(10.))
+                    .child(self.render_total_action(cx, live, has_shift, totals.total_minor)),
+            )
     }
 
-    /// The block's one button. Pay (live) and Open shift (no shift) are the
-    /// accent-filled primary; with a shift but an empty cart it is a
-    /// visibly locked Pay, since there is nothing to charge yet.
-    fn render_total_action(&self, cx: &Context<Self>, live: bool, has_shift: bool) -> impl IntoElement {
-        use crate::theme::metrics;
+    /// The column's one primary button. Pay shows the amount it will take;
+    /// with no shift it becomes Open shift; with an empty cart it is a
+    /// visibly locked Pay.
+    fn render_total_action(
+        &self,
+        cx: &Context<Self>,
+        live: bool,
+        has_shift: bool,
+        total_minor: i64,
+    ) -> impl IntoElement {
+        use crate::theme::{metrics, touch};
         let theme = cx.theme();
-        let (label, key) = if has_shift { ("Pay", "F2") } else { ("Open shift", "F7") };
+        let label = if !has_shift {
+            SharedString::from("Open shift")
+        } else if live {
+            SharedString::from(format!("Pay {}", fmt_money(total_minor, self.currency)))
+        } else {
+            SharedString::from("Pay")
+        };
+        let key = if has_shift { "F2" } else { "F7" };
         let enabled = live || !has_shift;
         let (fg, key_border) = if enabled {
-            (theme.accent_foreground, theme.accent_foreground.opacity(0.25))
+            (theme.accent_foreground, theme.accent_foreground.opacity(0.3))
         } else {
             (crate::theme::text_dim(), theme.border)
         };
@@ -1526,11 +1700,11 @@ impl RegisterScreen {
         h_flex()
             .id(if has_shift { "pay" } else { "open-shift" })
             .w_full()
-            .h(px(44.))
-            .gap(px(10.))
+            .h(touch::TAP_XL)
+            .gap(px(14.))
             .items_center()
             .justify_center()
-            .rounded(metrics::RADIUS_MD)
+            .rounded(touch::RADIUS_LG)
             .text_color(fg)
             .map(|button| {
                 if enabled {
@@ -1550,20 +1724,19 @@ impl RegisterScreen {
                 button.on_click(cx.listener(|_, _, _, cx| cx.emit(RegisterEvent::OpenShift)))
             })
             .child(
-                div()
-                    .text_size(metrics::FONT_HEADLINE)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(label),
+                super::money_text(label)
+                    .text_size(touch::FONT_ACTION)
+                    .font_weight(FontWeight::BOLD),
             )
             .child(
                 div()
-                    .px(px(5.))
+                    .px(px(6.))
                     .rounded(metrics::RADIUS_SM)
                     .border_1()
                     .border_color(key_border)
                     .font_family(crate::theme::FONT_MONO)
-                    .text_size(metrics::FONT_CAPTION)
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
                     .child(key),
             )
     }
@@ -1581,21 +1754,29 @@ impl Render for RegisterScreen {
         let totals = self.totals();
         let products = self.filtered_products(cx);
         let customer = self.attached_customer();
-        // 42px total, 36px when the cart column would fall under 340px
-        // (the web breakpoint). The column is 1/2.6 of the screen width
-        // after the rail and gutters, capped at 420px.
-        let column = ((f32::from(window.viewport_size().width) - 68. - 42.) / 2.6).min(400.);
-        let amount_size = if column < 340. { px(28.) } else { px(32.) };
+        // As many columns as keep every tile at least TILE_MIN_W wide.
+        use crate::theme::touch;
+        let catalog_w = f32::from(window.viewport_size().width)
+            - f32::from(touch::RAIL_W)
+            - f32::from(touch::CART_W)
+            - 32.;
+        let columns = ((catalog_w + 12.) / (touch::TILE_MIN_W + 12.)).floor().clamp(2., 6.) as u16;
 
         h_flex()
             .size_full()
             .items_stretch()
-            .gap(px(12.))
-            .p(px(12.))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(self.render_catalog(cx, &products))
-            .child(self.render_cart_panel(cx, &totals, customer, amount_size))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .p(px(16.))
+                    .child(self.render_catalog(cx, &products, columns)),
+            )
+            .child(self.render_cart_panel(cx, &totals, customer))
     }
 }
 
@@ -1623,18 +1804,92 @@ pub(crate) struct CustomerSnapshot {
     pub(crate) points: i64,
 }
 
-/// Payment modal: tender composition against the running total. Cash may
-/// overpay (that is what change is); the other methods cannot; loyalty
-/// points ride in as their own tender. `pub(crate)`: the training screen
-/// reuses this exact dialog for its payment lesson.
+/// Payment screen: tender composition against the running total, sized
+/// for touch. Pick a method (Cash by default), type or tap the amount, then
+/// Complete. An amount short of the total stages a partial tender and the
+/// screen stays open for the rest (split payment). Cash may overpay (that
+/// is what change is); the other methods cannot; loyalty points ride in as
+/// their own tender. `pub(crate)`: the training screen reuses it verbatim.
 pub(crate) struct PayDialog {
     total_minor: i64,
     customer: Option<CustomerSnapshot>,
     loyalty: LoyaltyConfig,
     currency: &'static Currency,
     tenders: Vec<Tender>,
+    method: TenderMethod,
     entry: Entity<InputState>,
     redeem: Entity<InputState>,
+    /// Paid was emitted: ignore further commits (Enter reaches both the
+    /// amount field and the dialog's Confirm) until the next reset.
+    settled: bool,
+    _subscriptions: Vec<Subscription>,
+}
+
+/// Opens the payment screen as a near-full-window dialog.
+pub(crate) fn open_pay_dialog(pay: Entity<PayDialog>, window: &mut Window, cx: &mut gpui_kit::App) {
+    let width = (f32::from(window.viewport_size().width) - 64.).clamp(900., 1240.);
+    let surface = cx.theme().background;
+    let content = pay.clone();
+    window.open_dialog(cx, move |dialog, _, _| {
+        let confirm = content.clone();
+        dialog
+            .w(px(width))
+            .margin_top(px(24.))
+            .close_button(false)
+            .bg(surface)
+            // Enter is the dialog's Confirm: complete (or stage) instead of
+            // closing. The register closes the dialog once the sale settles.
+            .on_ok(move |_, window, cx| {
+                confirm.update(cx, |pay, cx| pay.commit(window, cx));
+                false
+            })
+            .child(content.clone())
+    });
+    // The dialog takes focus as it opens; hand it to the amount field so a
+    // cashier can type the cash handed over and press Enter.
+    window.defer(cx, move |window, cx| {
+        pay.update(cx, |pay, cx| pay.focus_entry(window, cx));
+    });
+}
+
+const METHODS: [(TenderMethod, &str, IconName); 4] = [
+    (TenderMethod::Cash, "Cash", IconName::Banknote),
+    (TenderMethod::Card, "Card", IconName::CreditCard),
+    (TenderMethod::Qris, "QRIS", IconName::QrCode),
+    (TenderMethod::Transfer, "Transfer", IconName::Landmark),
+];
+
+fn method_label(method: TenderMethod) -> &'static str {
+    match method {
+        TenderMethod::Cash => "Cash",
+        TenderMethod::Card => "Card",
+        TenderMethod::Qris => "QRIS",
+        TenderMethod::Transfer => "Transfer",
+        TenderMethod::Loyalty => "Points",
+    }
+}
+
+/// Cash a customer is likely to hand over for `remaining`: the next round
+/// amounts above it (Rp 15.000 -> 16.000, 20.000, 50.000), padded with
+/// the next Rp 50.000 steps. Amounts are in the currency's minor units.
+pub(crate) fn quick_cash(remaining: i64) -> Vec<i64> {
+    const STEPS: [i64; 6] = [2_000, 5_000, 10_000, 20_000, 50_000, 100_000];
+    if remaining <= 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<i64> = STEPS
+        .iter()
+        .map(|step| (remaining + step - 1) / step * step)
+        .filter(|amount| *amount > remaining)
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out.truncate(3);
+    while out.len() < 3 {
+        let top = out.last().copied().unwrap_or(remaining);
+        out.push((top / 50_000 + 1) * 50_000);
+    }
+    out
 }
 
 impl PayDialog {
@@ -1643,10 +1898,14 @@ impl PayDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let entry = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(format!("Amount ({})", currency.code))
-        });
+        let entry = cx.new(|cx| InputState::new(window, cx));
         let redeem = cx.new(|cx| InputState::new(window, cx).placeholder("Points"));
+        // Enter in the amount completes, like the big button.
+        let subscription = cx.subscribe_in(&entry, window, |this, _, event, window, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.commit(window, cx);
+            }
+        });
         Self {
             total_minor: 0,
             customer: None,
@@ -1658,8 +1917,11 @@ impl PayDialog {
             },
             currency,
             tenders: Vec::new(),
+            method: TenderMethod::Cash,
             entry,
             redeem,
+            settled: false,
+            _subscriptions: vec![subscription],
         }
     }
 
@@ -1677,6 +1939,8 @@ impl PayDialog {
         self.loyalty = loyalty;
         self.currency = currency;
         self.tenders.clear();
+        self.method = TenderMethod::Cash;
+        self.settled = false;
         self.entry
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.redeem
@@ -1684,7 +1948,15 @@ impl PayDialog {
         cx.notify();
     }
 
-    fn entry_minor(&self, cx: &Context<Self>) -> i64 {
+    pub(crate) fn unsettle(&mut self) {
+        self.settled = false;
+    }
+
+    pub(crate) fn focus_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.entry.update(cx, |input, cx| input.focus(window, cx));
+    }
+
+    fn entry_minor(&self, cx: &gpui_kit::App) -> i64 {
         digits_of(&self.entry.read(cx).value()).parse().unwrap_or(0)
     }
 
@@ -1693,41 +1965,72 @@ impl PayDialog {
             .update(cx, |input, cx| input.set_value("", window, cx));
     }
 
-    fn add_method_tender(
-        &mut self,
-        method: TenderMethod,
-        remaining: i64,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let entry = self.entry_minor(cx);
-        let wanted = if entry > 0 { entry } else { remaining };
-        let applied = wanted.min(remaining);
+    fn max_redeem(&self) -> i64 {
+        self.customer
+            .as_ref()
+            .map(|customer| max_redeemable_points(customer.points, self.total_minor, &self.loyalty))
+            .unwrap_or(0)
+    }
+
+    fn clamped_redeem_points(&self, max_redeem: i64, cx: &gpui_kit::App) -> i64 {
+        digits_of(&self.redeem.read(cx).value())
+            .parse::<i64>()
+            .unwrap_or(0)
+            .clamp(0, max_redeem)
+    }
+
+    /// The payment as it stands, counting staged loyalty points.
+    fn payment(&self, cx: &gpui_kit::App) -> PaymentState {
+        let points = self.clamped_redeem_points(self.max_redeem(), cx);
+        let value = redeem_value_minor(points, &self.loyalty);
+        let mut tenders = self.tenders.clone();
+        if value > 0 {
+            tenders.push(payments::new_tender(TenderMethod::Loyalty, value, None));
+        }
+        payments::evaluate_payments(self.total_minor, &tenders)
+    }
+
+    /// Stage `amount` with the selected method. Cash records what was handed
+    /// over (unclamped); the rest cannot exceed the balance.
+    fn stage(&mut self, amount: i64, remaining: i64) {
+        let applied = amount.min(remaining);
         if applied <= 0 {
             return;
         }
-        // Cash records what was handed over (its unclamped entry); the rest
-        // cannot exceed the balance.
-        let given = (method == TenderMethod::Cash).then_some(wanted);
+        let given = (self.method == TenderMethod::Cash).then_some(amount);
         self.tenders
-            .push(payments::new_tender(method, applied, given));
-        self.clear_entry(window, cx);
+            .push(payments::new_tender(self.method, applied, given));
+    }
+
+    /// The big button (and Enter): stage the typed amount, or the exact
+    /// balance when nothing is typed, then finish if that covers the total.
+    fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settled {
+            return;
+        }
+        let remaining = self.payment(cx).remaining_minor.max(0);
+        let entry = self.entry_minor(cx);
+        if entry > 0 {
+            self.stage(entry, remaining);
+            self.clear_entry(window, cx);
+        } else if remaining > 0 {
+            self.stage(remaining, remaining);
+        }
+        if self.payment(cx).complete {
+            self.settled = true;
+            let redeem_points = self.clamped_redeem_points(self.max_redeem(), cx);
+            cx.emit(PayEvent::Paid {
+                tenders: self.tenders.clone(),
+                redeem_points,
+            });
+        }
         cx.notify();
     }
 
-    fn add_quick_cash(&mut self, note: i64, window: &mut Window, cx: &mut Context<Self>) {
-        let remaining = payments::evaluate_payments(self.total_minor, &self.tenders)
-            .remaining_minor
-            .max(0);
-        let applied = note.min(remaining);
-        if applied <= 0 {
-            return;
-        }
-        self.tenders.push(payments::new_tender(
-            TenderMethod::Cash,
-            applied,
-            Some(note),
-        ));
+    /// A quick-cash button: the customer handed over exactly this.
+    fn quick(&mut self, amount: i64, window: &mut Window, cx: &mut Context<Self>) {
+        let remaining = self.payment(cx).remaining_minor.max(0);
+        self.stage(amount, remaining);
         self.clear_entry(window, cx);
         cx.notify();
     }
@@ -1748,306 +2051,409 @@ impl PayDialog {
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }
 
-    fn clamped_redeem_points(&self, max_redeem: i64, cx: &Context<Self>) -> i64 {
-        digits_of(&self.redeem.read(cx).value())
-            .parse::<i64>()
-            .unwrap_or(0)
-            .clamp(0, max_redeem)
-    }
+    // ── Left column: what is owed ────────────────────────────────────────
 
-    fn render_total_band(&self, payment: &PaymentState, cx: &Context<Self>) -> impl IntoElement {
-        let (label, value, color) = if payment.complete {
-            ("CHANGE", payment.change_minor, cx.theme().success)
-        } else {
-            (
-                "REMAINING",
-                payment.remaining_minor.max(0),
-                cx.theme().accent,
-            )
-        };
-        h_flex()
-            .justify_between()
-            .rounded(cx.theme().radius)
-            .bg(cx.theme().background)
-            .px_3()
-            .py_2()
-            // The band used to label TOTAL without printing it.
-            .child(
-                v_flex()
-                    .gap_0p5()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("TOTAL"),
-                    )
-                    .child(
-                        super::money_text(fmt_money(self.total_minor, self.currency))
-                            .text_xl()
-                            .font_semibold(),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_0p5()
-                    .items_end()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(label),
-                    )
-                    .child(
-                        div()
-                            .text_xl()
-                            .font_semibold()
-                            .font_family(crate::theme::FONT_MONEY)
-                            .font_features(crate::theme::tabular())
-                            .text_color(color)
-                            .child(SharedString::from(fmt_money(value, self.currency))),
-                    ),
-            )
-    }
-
-    fn render_methods(&self, remaining: i64, cx: &Context<Self>) -> impl IntoElement {
-        let methods = [
-            (TenderMethod::Cash, "Cash"),
-            (TenderMethod::Card, "Card"),
-            (TenderMethod::Qris, "QRIS"),
-            (TenderMethod::Transfer, "Transfer"),
-        ];
-        let mut row = h_flex().gap_2().flex_wrap();
-        for (method, label) in methods {
-            row = row.child(
-                Button::new(SharedString::from(format!("method-{}", method.as_str())))
-                    .secondary()
-                    .label(label)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.add_method_tender(method, remaining, window, cx)
-                    })),
-            );
-        }
-        row
-    }
-
-    fn render_amount_entry(&self, remaining: i64, cx: &Context<Self>) -> impl IntoElement {
-        const QUICK_NOTES: [i64; 4] = [10_000, 20_000, 50_000, 100_000];
-        let mut row = h_flex().gap_2().flex_wrap().child(
+    fn render_due(&self, payment: &PaymentState, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let label = |text: &'static str| {
             div()
-                .flex_1()
-                .min_w(px(140.))
-                .child(Input::new(&self.entry).id("pay-entry")),
-        );
-        for note in QUICK_NOTES {
-            row = row.child(
-                Button::new(SharedString::from(format!("cash-{note}")))
-                    .secondary()
-                    .label(SharedString::from(fmt_money(note, self.currency)))
-                    .disabled(remaining <= 0)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.add_quick_cash(note, window, cx)
-                    })),
-            );
-        }
-        row
-    }
-
-    fn render_redeem(
-        &self,
-        max_redeem: i64,
-        staged_value: i64,
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
-        h_flex()
-            .gap_2()
-            .items_center()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!(
-                        "Redeem (max {} pts = {}):",
-                        max_redeem,
-                        fmt_money(redeem_value_minor(max_redeem, &self.loyalty), self.currency)
-                    ))),
-            )
-            .child(
-                div()
-                    .w(px(110.))
-                    .child(Input::new(&self.redeem).id("pay-redeem")),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .font_family(crate::theme::FONT_MONEY)
-                            .font_features(crate::theme::tabular())
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!(
-                        "= {}",
-                        fmt_money(staged_value, self.currency)
-                    ))),
-            )
-    }
-
-    fn render_staged_tenders(&self, cx: &Context<Self>) -> impl IntoElement {
-        let mut list = v_flex().gap_1();
+                .font_family(crate::theme::FONT_MONO)
+                .text_size(px(13.))
+                .text_color(crate::theme::text_dim())
+                .child(text)
+        };
+        let max_redeem = self.max_redeem();
+        let staged_points = self.clamped_redeem_points(max_redeem, cx);
+        let mut staged = v_flex().gap(px(4.));
         for tender in &self.tenders {
-            let label = match tender.given_minor {
-                Some(given) => format!(
-                    "{} (given {})",
-                    tender.method.as_str(),
+            let tender_id = tender.id.clone();
+            let hover = theme.secondary_hover;
+            let name = match tender.given_minor {
+                Some(given) if given > tender.applied_minor => format!(
+                    "{} · given {}",
+                    method_label(tender.method),
                     fmt_money(given, self.currency)
                 ),
-                None => tender.method.as_str().to_string(),
+                _ => method_label(tender.method).to_string(),
             };
-            list = list.child(
+            staged = staged.child(
                 h_flex()
-                    .justify_between()
-                    .pb_1()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
+                    .gap(px(10.))
+                    .items_center()
                     .child(
                         div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(label)),
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(touch::FONT_BODY)
+                            .text_color(theme.muted_foreground)
+                            .child(SharedString::from(name)),
                     )
                     .child(
-                        h_flex()
-                            .gap_2()
+                        super::money_text(fmt_money(tender.applied_minor, self.currency))
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::SEMIBOLD),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("tender-remove-{}", tender.id)))
+                            .cursor_pointer()
+                            .size(px(44.))
+                            .flex()
                             .items_center()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_family(crate::theme::FONT_MONEY)
-                            .font_features(crate::theme::tabular())
-                                    .child(SharedString::from(fmt_money(
-                                        tender.applied_minor,
-                                        self.currency,
-                                    ))),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!(
-                                    "tender-remove-{}",
-                                    tender.id
-                                )))
-                                .ghost()
-                                .small()
-                                .label("×")
-                                .on_click(cx.listener({
-                                    let tender_id = tender.id.clone();
-                                    move |this, _, _, cx| {
-                                        this.tenders.retain(|t| t.id != tender_id);
-                                        cx.notify();
-                                    }
-                                })),
-                            ),
+                            .justify_center()
+                            .rounded(px(10.))
+                            .hover(move |style| style.bg(hover))
+                            .child(Icon::new(IconName::Close).with_size(px(18.)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.tenders.retain(|t| t.id != tender_id);
+                                cx.notify();
+                            })),
                     ),
             );
         }
-        list
-    }
-
-    fn render_num_key(&self, key: &'static str, cx: &Context<Self>) -> impl IntoElement {
-        let id = if key == "⌫" { "num-back" } else { "num-key" };
-        Button::new(SharedString::from(format!("{id}-{key}")))
-            .secondary()
-            // Web `.numgrid button`: 14px padding, 16px text: a ~48px key.
-            .h(px(48.))
-            .w(px(64.))
-            .label(key)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                if key == "⌫" {
-                    this.backspace_entry(window, cx);
-                } else {
-                    this.push_entry_digits(key, window, cx);
-                }
-            }))
-    }
-
-    fn render_actions(
-        &self,
-        complete: bool,
-        redeem_points: i64,
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
-        const ROWS: [[&str; 3]; 4] = [
-            ["1", "2", "3"],
-            ["4", "5", "6"],
-            ["7", "8", "9"],
-            ["0", "00", "⌫"],
-        ];
-        let mut grid = v_flex().gap_2();
-        for row in ROWS {
-            let mut line = h_flex().gap_2();
-            for key in row {
-                line = line.child(self.render_num_key(key, cx));
-            }
-            grid = grid.child(line);
-        }
-        // Keypad centered on its own; the dialog's two exits share a footer
-        // row, dismiss on the left and the committing Paid on the right.
+        let (status_label, status_value, status_color) = if payment.complete {
+            ("CHANGE", payment.change_minor, theme.success)
+        } else {
+            ("REMAINING", payment.remaining_minor.max(0), theme.foreground)
+        };
         v_flex()
-            .gap_3()
-            .child(h_flex().justify_center().child(grid))
+            .w(px(400.))
+            .flex_none()
+            .gap(px(16.))
+            .p(px(28.))
+            .border_r_1()
+            .border_color(theme.border)
+            .child(label("AMOUNT DUE"))
             .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .pt_3()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
+                super::money_text(fmt_money(self.total_minor, self.currency))
+                    .text_size(touch::FONT_DUE)
+                    .line_height(touch::FONT_DUE * 1.1)
+                    .font_weight(FontWeight::BOLD),
+            )
+            .when(!self.tenders.is_empty(), |col| {
+                col.child(
+                    v_flex()
+                        .gap(px(8.))
+                        .p(px(16.))
+                        .rounded(touch::RADIUS_LG)
+                        .bg(theme.secondary)
+                        .child(label("PAID SO FAR"))
+                        .child(staged),
+                )
+            })
+            .child(
+                v_flex()
+                    .gap(px(6.))
+                    .p(px(16.))
+                    .rounded(touch::RADIUS_LG)
+                    .bg(theme.secondary)
+                    .child(label(status_label))
                     .child(
-                        Button::new("pay-cancel")
-                            .ghost()
-                            .label("Cancel (Esc)")
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
-                    )
-                    .child(
-                Button::new("pay-paid")
-                    .primary()
-                    .large()
-                    .w(px(220.))
-                    .label("Paid")
-                    .disabled(!complete)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.emit(PayEvent::Paid {
-                            tenders: this.tenders.clone(),
-                            redeem_points,
-                        });
-                    })),
+                        super::money_text(fmt_money(status_value, self.currency))
+                            .text_size(px(40.))
+                            .line_height(px(46.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(status_color),
                     ),
             )
+            .when(max_redeem > 0, |col| {
+                col.child(
+                    v_flex()
+                        .gap(px(8.))
+                        .child(label("REDEEM POINTS"))
+                        .child(
+                            h_flex()
+                                .gap(px(10.))
+                                .items_center()
+                                .child(
+                                    div()
+                                        .w(px(140.))
+                                        .h(touch::TAP_SM)
+                                        .px(px(12.))
+                                        .flex()
+                                        .items_center()
+                                        .rounded(touch::RADIUS)
+                                        .border_1()
+                                        .border_color(crate::theme::border_strong())
+                                        .child(
+                                            Input::new(&self.redeem)
+                                                .id("pay-redeem")
+                                                .appearance(false)
+                                                .text_size(px(17.)),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(14.))
+                                        .text_color(theme.muted_foreground)
+                                        .child(SharedString::from(format!(
+                                            "max {max_redeem} · = {}",
+                                            fmt_money(
+                                                redeem_value_minor(staged_points, &self.loyalty),
+                                                self.currency
+                                            )
+                                        ))),
+                                ),
+                        ),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                h_flex()
+                    .id("pay-cancel")
+                    .cursor_pointer()
+                    .h(px(64.))
+                    .gap(px(10.))
+                    .items_center()
+                    .justify_center()
+                    .rounded(touch::RADIUS_LG)
+                    .border_1()
+                    .border_color(crate::theme::border_strong())
+                    .text_size(px(18.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .hover(|style| style.bg(gpui_kit::white().opacity(0.04)))
+                    .child(Icon::new(IconName::ArrowLeft).with_size(px(20.)))
+                    .child("Back to cart")
+                    .child(super::key_cap("Esc"))
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
+            )
+    }
+
+    // ── Right column: how it is paid ─────────────────────────────────────
+
+    fn render_methods(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let mut row = div().grid().grid_cols(4).gap(px(10.));
+        for (method, label, icon) in METHODS {
+            let selected = self.method == method;
+            let hover = theme.secondary_hover;
+            row = row.child(
+                v_flex()
+                    .id(SharedString::from(format!("method-{}", method.as_str())))
+                    .cursor_pointer()
+                    .h(px(76.))
+                    .gap(px(6.))
+                    .items_center()
+                    .justify_center()
+                    .rounded(touch::RADIUS_LG)
+                    .text_size(touch::FONT_BODY)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .map(|tile| {
+                        if selected {
+                            tile.bg(theme.primary).text_color(theme.primary_foreground)
+                        } else {
+                            tile.bg(theme.secondary).hover(move |style| style.bg(hover))
+                        }
+                    })
+                    .child(Icon::new(icon).with_size(px(24.)))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.method = method;
+                        cx.notify();
+                    })),
+            );
+        }
+        row
+    }
+
+    fn render_quick(&self, remaining: i64, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let hover = theme.secondary_hover;
+        let key = |id: SharedString, label: SharedString| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .h(px(64.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(touch::RADIUS)
+                .font_family(crate::theme::FONT_MONEY)
+                .font_features(crate::theme::tabular())
+                .text_size(px(18.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .hover(move |style| style.bg(hover))
+                .active(|style| style.opacity(0.75))
+                .child(label)
+        };
+        let mut row = div().grid().grid_cols(4).gap(px(10.)).child(
+            key("quick-exact".into(), "Exact".into())
+                .bg(theme.muted)
+                .on_click(cx.listener(move |this, _, window, cx| this.quick(remaining, window, cx))),
+        );
+        if self.method == TenderMethod::Cash {
+            for amount in quick_cash(remaining) {
+                row = row.child(
+                    key(
+                        SharedString::from(format!("cash-{amount}")),
+                        SharedString::from(fmt_money(amount, self.currency)),
+                    )
+                    .border_1()
+                    .border_color(crate::theme::border_strong())
+                    .on_click(cx.listener(move |this, _, window, cx| this.quick(amount, window, cx))),
+                );
+            }
+        }
+        row
+    }
+
+    fn render_entry(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let label = match self.method {
+            TenderMethod::Cash => "Cash received",
+            _ => "Amount",
+        };
+        h_flex()
+            .h(px(72.))
+            .px(px(22.))
+            .gap(px(16.))
+            .items_center()
+            .rounded(touch::RADIUS_LG)
+            .bg(theme.secondary)
+            .border_1()
+            .border_color(crate::theme::border_strong())
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(touch::FONT_LABEL)
+                    .text_color(crate::theme::text_dim())
+                    .child(label),
+            )
+            .child(
+                Input::new(&self.entry)
+                    .id("pay-entry")
+                    .appearance(false)
+                    .flex_1()
+                    .h(px(48.))
+                    .text_size(px(30.))
+                    .line_height(px(40.)),
+            )
+    }
+
+    fn render_pad(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        const KEYS: [&str; 12] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "⌫"];
+        let theme = cx.theme();
+        let hover = theme.secondary_hover;
+        let mut grid = div().grid().grid_cols(3).gap(px(10.));
+        for key in KEYS {
+            grid = grid.child(
+                div()
+                    .id(SharedString::from(format!("num-{key}")))
+                    .cursor_pointer()
+                    .h(px(64.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(touch::RADIUS)
+                    .bg(theme.secondary)
+                    .hover(move |style| style.bg(hover))
+                    .active(|style| style.opacity(0.7))
+                    .text_size(px(26.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .map(|cell| {
+                        if key == "⌫" {
+                            cell.child(Icon::new(IconName::Delete).with_size(px(26.)))
+                        } else {
+                            cell.child(key)
+                        }
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if key == "⌫" {
+                            this.backspace_entry(window, cx);
+                        } else {
+                            this.push_entry_digits(key, window, cx);
+                        }
+                    })),
+            );
+        }
+        grid
+    }
+
+    /// The one primary button, labelled with what it will do.
+    fn render_commit(&self, payment: &PaymentState, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
+        let theme = cx.theme();
+        let remaining = payment.remaining_minor.max(0);
+        let entry = self.entry_minor(cx);
+        let method = method_label(self.method);
+        let label = if payment.complete {
+            if payment.change_minor > 0 {
+                format!("Complete sale · change {}", fmt_money(payment.change_minor, self.currency))
+            } else {
+                "Complete sale".to_string()
+            }
+        } else if entry == 0 {
+            format!("Charge {} by {method}", fmt_money(remaining, self.currency))
+        } else if self.method == TenderMethod::Cash && entry >= remaining {
+            format!("Complete sale · change {}", fmt_money(entry - remaining, self.currency))
+        } else if entry >= remaining {
+            format!("Charge {} by {method}", fmt_money(remaining, self.currency))
+        } else {
+            format!(
+                "Add {} {method} · {} left",
+                fmt_money(entry, self.currency),
+                fmt_money(remaining - entry, self.currency)
+            )
+        };
+        let (bg, hover, active, fg) =
+            (theme.primary, theme.primary_hover, theme.primary_active, theme.primary_foreground);
+        h_flex()
+            .id("pay-paid")
+            .cursor_pointer()
+            .h(touch::TAP_XL)
+            .gap(px(14.))
+            .items_center()
+            .justify_center()
+            .rounded(touch::RADIUS_LG)
+            .bg(bg)
+            .hover(move |style| style.bg(hover))
+            .active(move |style| style.bg(active))
+            .text_color(fg)
+            .child(
+                super::money_text(label)
+                    .text_size(touch::FONT_ACTION)
+                    .font_weight(FontWeight::BOLD),
+            )
+            .child(
+                div()
+                    .px(px(6.))
+                    .rounded(crate::theme::metrics::RADIUS_SM)
+                    .border_1()
+                    .border_color(fg.opacity(0.3))
+                    .font_family(crate::theme::FONT_MONO)
+                    .text_size(px(12.))
+                    .child("Enter"),
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx)))
     }
 }
 
 impl Render for PayDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let payment = payments::evaluate_payments(self.total_minor, &self.tenders);
+        let payment = self.payment(cx);
         let remaining = payment.remaining_minor.max(0);
-        let max_redeem = self
-            .customer
-            .as_ref()
-            .map(|customer| max_redeemable_points(customer.points, self.total_minor, &self.loyalty))
-            .unwrap_or(0);
-        let staged_redeem = self.clamped_redeem_points(max_redeem, cx);
-
-        v_flex()
-            .gap_3()
-            .child(self.render_total_band(&payment, cx))
-            .child(self.render_methods(remaining, cx))
-            .child(self.render_amount_entry(remaining, cx))
-            .when(max_redeem > 0 && self.customer.is_some(), |dialog| {
-                dialog.child(self.render_redeem(
-                    max_redeem,
-                    redeem_value_minor(staged_redeem, &self.loyalty),
-                    cx,
-                ))
-            })
-            .when(!self.tenders.is_empty(), |dialog| {
-                dialog.child(self.render_staged_tenders(cx))
-            })
-            .child(self.render_actions(payment.complete, staged_redeem, cx))
+        h_flex()
+            .items_stretch()
+            .min_h(px(640.))
+            .child(self.render_due(&payment, cx))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(12.))
+                    .p(px(28.))
+                    .child(self.render_methods(cx))
+                    .child(self.render_quick(remaining, cx))
+                    .child(self.render_entry(cx))
+                    .child(self.render_pad(cx))
+                    .child(self.render_commit(&payment, cx)),
+            )
     }
 }
 
@@ -2219,11 +2625,12 @@ impl Render for ReceiptDialog {
             .child(h_flex().gap_4().items_stretch().child(paper).child(side))
             .child(
                 h_flex()
-                    .justify_center()
-                    .gap_2()
+                    .gap(px(10.))
                     .child(
                         Button::new("receipt-export")
                             .secondary()
+                            .h(crate::theme::touch::TAP)
+                            .px(px(20.))
                             .label("Export .txt")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let Some(sale) = this.sale.clone() else {
@@ -2243,6 +2650,8 @@ impl Render for ReceiptDialog {
                     .child(
                         Button::new("receipt-print-bytes")
                             .secondary()
+                            .h(crate::theme::touch::TAP)
+                            .px(px(20.))
                             .label("Print bytes")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let Some(sale) = this.sale.clone() else {
@@ -2263,6 +2672,9 @@ impl Render for ReceiptDialog {
                     .child(
                         Button::new("receipt-new-sale")
                             .primary()
+                            .flex_1()
+                            .h(crate::theme::touch::TAP)
+                            .text_size(px(18.))
                             .label("New sale")
                             .on_click(cx.listener(|_, _, window, cx| {
                                 cx.emit(ReceiptEvent::Closed);
@@ -2395,12 +2807,39 @@ fn qty_label(qty: f64) -> String {
     }
 }
 
+/// A money amount without its currency symbol ("30.000"), for columns
+/// where the symbol would repeat on every row.
+fn fmt_number(minor: i64, currency: &Currency) -> String {
+    let full = fmt_money(minor, currency);
+    match full.find(|c: char| c.is_ascii_digit()) {
+        Some(at) if !full[..at].contains('-') => full[at..].to_string(),
+        _ => full,
+    }
+}
+
+/// Basis points as a percentage label: 1000 -> "10", 1250 -> "12.5".
+fn percent_label(bps: i64) -> String {
+    if bps % 100 == 0 {
+        (bps / 100).to_string()
+    } else {
+        format!("{:.2}", bps as f64 / 100.0).trim_end_matches('0').to_string()
+    }
+}
+
 fn plural(count: i64, noun: &str) -> String {
     if count == 1 { format!("1 {noun}") } else { format!("{count} {noun}s") }
 }
 
 fn plural_units(units: f64) -> String {
     if units == 1.0 { "1 item".to_string() } else { format!("{} items", qty_label(units)) }
+}
+
+/// Local wall-clock `HH:MM` of an ISO timestamp (the shift's opening).
+fn clock_of(iso: &str) -> String {
+    use kaseer_core::chrono::{DateTime, Local};
+    DateTime::parse_from_rfc3339(iso)
+        .map(|at| at.with_timezone(&Local).format("%H:%M").to_string())
+        .unwrap_or_else(|_| iso.chars().skip(11).take(5).collect())
 }
 
 fn days_ago(days: i64) -> String {
@@ -2494,7 +2933,23 @@ fn civil_timestamp(secs: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{civil_timestamp, days_ago, now_iso, plural_units, qty_label};
+    use super::{
+        civil_timestamp, days_ago, now_iso, percent_label, plural_units, qty_label, quick_cash,
+    };
+
+    #[test]
+    fn quick_cash_offers_the_next_round_amounts() {
+        assert_eq!(quick_cash(15_000), vec![16_000, 20_000, 50_000]);
+        assert_eq!(quick_cash(48_000), vec![50_000, 60_000, 100_000]);
+        assert_eq!(quick_cash(60_000), vec![100_000, 150_000, 200_000]);
+        assert!(quick_cash(0).is_empty());
+    }
+
+    #[test]
+    fn percent_labels_drop_trailing_zeros() {
+        assert_eq!(percent_label(1000), "10");
+        assert_eq!(percent_label(1250), "12.5");
+    }
 
     #[test]
     fn now_iso_is_a_parseable_iso_stamp() {

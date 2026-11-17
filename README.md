@@ -4,9 +4,14 @@ Kaseer is an offline-first point-of-sale terminal for small shops, cafés and wa
 native desktop app written in Rust on [GPUI Kit](https://crates.io/crates/gpui-kit): one binary,
 a local SQLite ledger, and a keyboard-first register that keeps selling when the internet is down.
 
-![The register](review/atur/01-register.png)
+![The register](docs/screenshots/register.png)
+
+![Payment](docs/screenshots/payment.png)
 
 ## What it does
+
+Built for a touch screen at the counter: every button is finger-sized (52px and up), and the
+keyboard still does everything (F-keys, a barcode scanner as a keyboard wedge, Enter to pay).
 
 - **Register**: barcode scan or tap, categories, cart discounts, customers and loyalty points,
   cash/card/QRIS/transfer tenders with change, receipts (ESC/POS).

@@ -376,15 +376,7 @@ impl TrainingScreen {
                 cx,
             )
         });
-        let pay = self.pay_dialog.clone();
-        let surface = cx.theme().popover;
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title("Payment: training sandbox")
-                .w(px(640.))
-                .bg(surface)
-                .child(pay.clone())
-        });
+        super::register::open_pay_dialog(self.pay_dialog.clone(), window, cx);
     }
 
     fn on_pay_event(&mut self, event: &PayEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -397,7 +389,11 @@ impl TrainingScreen {
                 window.close_dialog(cx);
                 self.open_receipt(sale, window, cx);
             }
-            Err(message) => window.push_notification(Notification::error(message), cx),
+            Err(message) => {
+                // Let the cashier fix it and try again.
+                self.pay_dialog.update(cx, |pay, _| pay.unsettle());
+                window.push_notification(Notification::error(message), cx);
+            }
         }
         self.refresh(cx);
     }

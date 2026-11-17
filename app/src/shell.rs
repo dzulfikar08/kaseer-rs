@@ -60,6 +60,15 @@ enum NavItem {
 /// Rail order after the web-companion split. Training and Knowledge are
 /// the two slots that used to sit reserved at the bottom: now real
 /// screens, so the rail renders every entry the same way.
+const PRIMARY_NAV: &[NavItem] = &[
+    NavItem::Register,
+    NavItem::Shift,
+    NavItem::Inventory,
+    NavItem::Customers,
+    NavItem::Reports,
+];
+const SECONDARY_NAV: &[NavItem] = &[NavItem::Training, NavItem::Knowledge, NavItem::Settings];
+
 const NAV_ITEMS: &[NavItem] = &[
     NavItem::Register,
     NavItem::Shift,
@@ -243,72 +252,73 @@ impl AppShell {
     }
 
     fn render_nav(&self, cx: &Context<Self>) -> impl IntoElement {
+        use crate::theme::touch;
         let active = self.active;
-        // Atur's sidebar: a narrow rail-coloured strip, muted icon + label
-        // items, the selected one on a surface in full text colour. The
-        // function keys live in the key bar, so the rail stays quiet. The
-        // flat K-mark heads it.
+        let item = |item: NavItem| {
+            let selected = item == active;
+            let theme = cx.theme();
+            let (fg, bg) = if selected {
+                (theme.sidebar_accent_foreground, theme.sidebar_accent)
+            } else {
+                (theme.sidebar_foreground, gpui_kit::transparent_black())
+            };
+            let (hover_fg, hover_bg) = (theme.foreground, theme.secondary);
+            v_flex()
+                .id(SharedString::from(format!("nav-{}", item.label().to_lowercase())))
+                .cursor_pointer()
+                .flex_none()
+                .w(px(74.))
+                .h(px(66.))
+                .items_center()
+                .justify_center()
+                .gap(px(5.))
+                .rounded(touch::RADIUS)
+                .bg(bg)
+                .text_color(fg)
+                .hover(move |style| {
+                    if selected {
+                        style
+                    } else {
+                        style.text_color(hover_fg).bg(hover_bg)
+                    }
+                })
+                .active(|style| style.opacity(0.8))
+                .on_click(cx.listener(move |shell, _, window, cx| {
+                    shell.navigate(item, window, cx);
+                }))
+                .child(Icon::new(item.icon()).with_size(px(22.)).text_color(fg))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .whitespace_nowrap()
+                        .when(selected, |label| label.font_weight(FontWeight::SEMIBOLD))
+                        .child(item.label()),
+                )
+        };
+        // Selling screens at the top; set-up and learning screens grouped
+        // at the bottom, out of the cashier's main reach.
         v_flex()
             .id("nav-rail")
-            .w(px(68.))
+            .w(touch::RAIL_W)
             .h_full()
             .flex_shrink_0()
             .items_center()
-            .pt(px(10.))
-            .gap(px(2.))
+            .pt(px(12.))
+            .pb(px(10.))
+            .gap(px(4.))
             .bg(cx.theme().sidebar)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
             .child(
                 img(crate::theme::KMARK_PATH)
-                    .size(px(20.))
+                    .size(px(26.))
                     .flex_none()
-                    .mt(px(2.))
+                    .mt(px(4.))
                     .mb(px(14.)),
             )
-            .children(NAV_ITEMS.iter().map(|item| {
-                let item = *item;
-                let selected = item == active;
-                let theme = cx.theme();
-                let (fg, bg) = if selected {
-                    (theme.sidebar_accent_foreground, theme.sidebar_accent)
-                } else {
-                    (theme.sidebar_foreground, gpui_kit::transparent_black())
-                };
-                let (hover_fg, hover_bg) = (theme.foreground, theme.secondary);
-                v_flex()
-                    .id(SharedString::from(format!(
-                        "nav-{}",
-                        item.label().to_lowercase()
-                    )))
-                    .cursor_pointer()
-                    .w(px(60.))
-                    .py(px(7.))
-                    .items_center()
-                    .gap(px(4.))
-                    .rounded(metrics::RADIUS_MD)
-                    .bg(bg)
-                    .when(selected, |item| item.border_1().border_color(theme.border))
-                    .text_color(fg)
-                    .hover(move |style| {
-                        if selected {
-                            style
-                        } else {
-                            style.text_color(hover_fg).bg(hover_bg)
-                        }
-                    })
-                    .on_click(cx.listener(move |shell, _, window, cx| {
-                        shell.navigate(item, window, cx);
-                    }))
-                    .child(Icon::new(item.icon()).with_size(px(16.)).text_color(fg))
-                    .child(
-                        div()
-                            .text_size(metrics::FONT_CAPTION)
-                            .whitespace_nowrap()
-                            .when(selected, |label| label.font_weight(FontWeight::MEDIUM))
-                            .child(item.label()),
-                    )
-            }))
+            .children(PRIMARY_NAV.iter().map(|nav| item(*nav)))
+            .child(div().flex_1().min_h(px(8.)))
+            .children(SECONDARY_NAV.iter().map(|nav| item(*nav)))
     }
 
     /// Switch screens and wake the one becoming visible. Retained screens

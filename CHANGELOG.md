@@ -2,6 +2,25 @@
 
 All notable changes to Kaseer are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [0.4.0] - 2026-11-17
+
+The register is redesigned for touch screens: big buttons everywhere a cashier taps.
+
+### Changed
+
+- Register: larger product tiles (18px names, count badge when in the cart), 56px category
+  buttons, a 60px scan bar with the shift status beside it.
+- Cart: each line has big − / + buttons (− at one removes the line); Discount opens preset
+  percentages (5–50%) or a custom one; Clear asks for a second tap; the Pay button shows the
+  total and is 84px tall.
+- Payment is a large screen instead of a small dialog: pick Cash, Card, QRIS or Transfer, tap
+  Exact or a suggested cash amount (the next round amounts above the bill) or type it on a big
+  number pad, and one button says what it will do ("Complete sale · change Rp 17.000"). An amount
+  short of the total stages a partial payment, so split payments take two taps. Enter completes.
+- Side rail: bigger items; Training, Knowledge and Settings grouped at the bottom.
+- Receipt: big New sale button.
+- macOS builds are signed with a Developer ID and notarised.
+
 ## [0.3.0] - 2026-11-17
 
 First open-source release, under AGPL-3.0-or-later.

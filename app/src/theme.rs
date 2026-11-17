@@ -97,6 +97,37 @@ pub mod metrics {
 
 /// The receipt: white paper, near-black ink. Functions because
 /// `Hsla::parse_hex` is not `const`.
+/// Touch sizes for the selling screens (register, payment, rail). A cashier
+/// taps these with a finger on a 15" touch panel, so nothing tappable is
+/// under 52px and selling text starts at 15px.
+pub mod touch {
+    use gpui_kit::{Pixels, px};
+
+    /// Secondary taps: chips, cart actions, quick cash, rail items.
+    pub const TAP: Pixels = px(56.);
+    /// Cart quantity steppers, list rows.
+    pub const TAP_SM: Pixels = px(52.);
+    /// The one primary action on a screen (Pay, Complete sale).
+    pub const TAP_XL: Pixels = px(84.);
+    pub const RADIUS: Pixels = px(12.);
+    pub const RADIUS_LG: Pixels = px(14.);
+
+    pub const FONT_LABEL: Pixels = px(15.);
+    pub const FONT_BODY: Pixels = px(16.);
+    pub const FONT_ITEM: Pixels = px(17.);
+    pub const FONT_TILE: Pixels = px(18.);
+    pub const FONT_ACTION: Pixels = px(22.);
+    pub const FONT_TOTAL: Pixels = px(38.);
+    pub const FONT_DUE: Pixels = px(56.);
+
+    /// Product tiles: at least this tall, and the grid adds columns only
+    /// while each stays at least `TILE_MIN_W` wide.
+    pub const TILE_H: Pixels = px(118.);
+    pub const TILE_MIN_W: f32 = 168.;
+    pub const RAIL_W: Pixels = px(88.);
+    pub const CART_W: Pixels = px(440.);
+}
+
 pub fn receipt_paper() -> Hsla {
     token("#ffffff")
 }
@@ -156,14 +187,6 @@ fn category_hash(name: &str) -> u32 {
     name.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
         (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
     })
-}
-
-/// The card border pre-blended over the tile surface. Product tiles paint
-/// their category hue under the border, where a translucent border would
-/// take the hue's colour; this opaque twin keeps the outline identical to
-/// every other card.
-pub fn tile_border() -> Hsla {
-    token(BORDER_STRONG)
 }
 
 /// The K-mark, served by the app's asset source at [`KMARK_PATH`]. Drawn in
