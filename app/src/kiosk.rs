@@ -541,6 +541,7 @@ mod tests {
     fn arch_matches_the_contract_shape() {
         // The manifest keys releases by this string; the contract's
         // example is x86_64-linux.
+        #[cfg(target_os = "linux")]
         assert!(arch().ends_with("-linux"));
         assert_eq!(
             arch(),
