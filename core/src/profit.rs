@@ -84,6 +84,13 @@ pub fn max_order_discount_bps(
     Some(bps)
 }
 
+/// The whole-sale discount the cart carries: what was asked, capped at
+/// the guard's limit (None = no limit); zero means no discount.
+pub fn guarded_bps(asked: Option<i64>, max: Option<i64>) -> Option<i64> {
+    let asked = asked?;
+    Some(max.map_or(asked, |max| asked.min(max))).filter(|bps| *bps > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +103,29 @@ mod tests {
 
     fn idr() -> &'static Currency {
         currency_by_code("IDR").unwrap()
+    }
+
+    #[test]
+    fn the_cart_carries_the_asked_discount_up_to_the_limit() {
+        assert_eq!(guarded_bps(None, Some(500)), None);
+        assert_eq!(guarded_bps(Some(1_000), None), Some(1_000));
+        assert_eq!(guarded_bps(Some(1_000), Some(522)), Some(522));
+        assert_eq!(guarded_bps(Some(1_000), Some(5_987)), Some(1_000));
+        assert_eq!(guarded_bps(Some(1_000), Some(0)), None);
+    }
+
+    #[test]
+    fn a_fat_margin_item_gives_a_lowered_discount_back() {
+        let costs = HashMap::from([("beras".to_string(), 58_000), ("kopi".to_string(), 6_500)]);
+        let beras = add_to_cart(&empty_cart("IDR"), &product("beras", 68_000), 1.0).unwrap();
+        let thin = max_order_discount_bps(&beras, &costs, &[], idr(), 10);
+        assert_eq!(guarded_bps(Some(1_000), thin), Some(522), "a 10% code on rice alone is lowered");
+        let mut cart = beras;
+        for _ in 0..3 {
+            cart = add_to_cart(&cart, &product("kopi", 18_000), 1.0).unwrap();
+        }
+        let wide = max_order_discount_bps(&cart, &costs, &[], idr(), 10);
+        assert_eq!(guarded_bps(Some(1_000), wide), Some(1_000), "with three coffees it fits again");
     }
 
     #[test]

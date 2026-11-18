@@ -45,7 +45,7 @@ use kaseer_core::loyalty::{
 };
 use kaseer_core::menu;
 use kaseer_core::money;
-use kaseer_core::profit::{cart_profit, max_order_discount_bps};
+use kaseer_core::profit::{cart_profit, guarded_bps, max_order_discount_bps};
 use kaseer_core::payments::{self, PaymentState, Tender, TenderMethod};
 use kaseer_core::receipt::{AddonOffer, Sale, SaleLine, SaleTender, StoreInfo, render_receipt_text};
 use kaseer_core::repos::{Customer, Product, Repo, Settings, WinbackOfferRow};
@@ -421,13 +421,7 @@ impl RegisterScreen {
     /// is lower. Runs at the top of every render, so adding a thin-margin
     /// item lowers the discount and adding a fat one gives it back.
     fn apply_guard(&mut self) {
-        let applied = match (self.asked_bps, self.max_discount_bps()) {
-            (Some(asked), Some(max)) => Some(asked.min(max)),
-            (asked, None) => asked,
-            (None, Some(_)) => None,
-        }
-        .filter(|bps| *bps > 0)
-        .map(|bps| Discount::Percent { bps });
+        let applied = guarded_bps(self.asked_bps, self.max_discount_bps()).map(|bps| Discount::Percent { bps });
         if self.cart.order_discount != applied {
             self.cart = cart::set_order_discount(&self.cart, applied);
         }
