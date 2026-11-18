@@ -4,6 +4,12 @@ All notable changes to Kaseer are listed here. Versions follow [Semantic Version
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-18
+
+Discounts that stay profitable. With Kaseer Cloud, the product editor works out each item's HPP
+from its ingredients and packaging, and the register keeps every discount above the owner's
+minimum profit.
+
 ### Added
 
 - Profit guard: a whole-sale discount never takes the sale under the owner's minimum profit over
