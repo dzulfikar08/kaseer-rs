@@ -23,6 +23,7 @@ pub mod money;
 pub mod opportunities;
 pub mod payments;
 pub mod product_perf;
+pub mod profit;
 pub mod receipt;
 pub mod repos;
 pub mod reports;

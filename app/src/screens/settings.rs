@@ -71,6 +71,8 @@ pub struct SettingsScreen {
     addon_prompt: bool,
     ask_phone: bool,
     winback_discount_pct: i64,
+    profit_guard: bool,
+    min_margin_pct: Entity<InputState>,
     cloud_addons: Vec<kaseer_core::repos::CloudAddon>,
     step_minor: Entity<InputState>,
     points_per_step: Entity<InputState>,
@@ -151,6 +153,13 @@ impl SettingsScreen {
             "",
         );
 
+        let min_margin_pct = text_input(
+            window,
+            cx,
+            &store.map_or(10, |s| s.config.min_margin_pct).to_string(),
+            "10",
+        );
+
         let currency_code = store
             .map(|s| s.currency_code.clone())
             .unwrap_or_else(|| kaseer_core::currency::IDR.code.to_string());
@@ -213,6 +222,8 @@ impl SettingsScreen {
             addon_prompt: store.is_none_or(|s| s.config.addon_prompt),
             ask_phone: store.is_none_or(|s| s.config.ask_phone),
             winback_discount_pct: store.map_or(10, |s| s.config.winback_discount_pct),
+            profit_guard: store.is_none_or(|s| s.config.profit_guard),
+            min_margin_pct,
             cloud_addons: store.map(|s| s.config.cloud_addons.clone()).unwrap_or_default(),
             step_minor,
             points_per_step,
@@ -315,6 +326,8 @@ impl SettingsScreen {
                 addon_prompt: self.addon_prompt,
                 ask_phone: self.ask_phone,
                 winback_discount_pct: self.winback_discount_pct,
+                profit_guard: self.profit_guard,
+                min_margin_pct: non_neg_int(&self.min_margin_pct.read(cx).value()).min(90),
                 cloud_addons: self.cloud_addons.clone(),
             },
         };
@@ -853,6 +866,27 @@ impl SettingsScreen {
                                 this.ask_phone = *checked;
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Switch::new("profit-guard")
+                            .label("Profit guard: discounts never cut under the minimum profit over HPP")
+                            .checked(self.profit_guard)
+                            .on_change(cx.listener(|this, checked: &bool, _, cx| {
+                                this.profit_guard = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_size(metrics::FONT_FOOTNOTE)
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Minimum profit, % of the sale"),
+                            )
+                            .child(div().w_24().child(Input::new(&self.min_margin_pct))),
                     )
                     .child(
                         div()

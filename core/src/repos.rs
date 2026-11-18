@@ -53,6 +53,13 @@ pub struct StoreConfig {
     /// Discount a win-back code gives, percent (the cloud's code carries its own).
     #[serde(default = "default_winback_discount_pct")]
     pub winback_discount_pct: i64,
+    /// Profit guard: a whole-sale discount never takes the sale under
+    /// `min_margin_pct` of profit over HPP.
+    #[serde(default = "default_true")]
+    pub profit_guard: bool,
+    /// The guard's floor, percent of revenue kept as profit.
+    #[serde(default = "default_min_margin_pct")]
+    pub min_margin_pct: i64,
     /// Kaseer Cloud's add-on pairs, so every terminal offers the same
     /// thing; empty without a cloud (the register works them out itself).
     #[serde(default)]
@@ -77,13 +84,25 @@ fn default_winback_discount_pct() -> i64 {
     10
 }
 
+fn default_min_margin_pct() -> i64 {
+    10
+}
+
 fn default_lost_after_days() -> i64 {
     30
 }
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        StoreConfig { lost_after_days: 30, addon_prompt: true, ask_phone: true, winback_discount_pct: 10, cloud_addons: Vec::new() }
+        StoreConfig {
+            lost_after_days: 30,
+            addon_prompt: true,
+            ask_phone: true,
+            winback_discount_pct: 10,
+            profit_guard: true,
+            min_margin_pct: 10,
+            cloud_addons: Vec::new(),
+        }
     }
 }
 
@@ -255,17 +274,21 @@ impl Repo {
     /// Write only the Grow keys of `config_json` (the cloud's switches and
     /// add-on pairs), leaving every other key, including ones only the web
     /// companion knows, untouched.
-    pub fn set_grow_config(&self, addon_prompt: bool, ask_phone: bool, winback_discount_pct: i64, cloud_addons: &[CloudAddon]) -> Result<()> {
+    pub fn set_grow_config(&self, growth: &crate::menu::MenuGrowth, cloud_addons: &[CloudAddon]) -> Result<()> {
+        let flag = |b: bool| if b { "true" } else { "false" };
         self.conn.execute(
             "UPDATE settings SET config_json = json_set(
                CASE WHEN json_valid(config_json) THEN config_json ELSE '{}' END,
-               '$.addonPrompt', json(?1), '$.askPhone', json(?2), '$.winbackDiscountPct', ?3, '$.cloudAddons', json(?4))
+               '$.addonPrompt', json(?1), '$.askPhone', json(?2), '$.winbackDiscountPct', ?3, '$.cloudAddons', json(?4),
+               '$.profitGuard', json(?5), '$.minMarginPct', ?6)
              WHERE id = 1",
             params![
-                if addon_prompt { "true" } else { "false" },
-                if ask_phone { "true" } else { "false" },
-                winback_discount_pct,
-                serde_json::to_string(cloud_addons)?
+                flag(growth.addon_prompt),
+                flag(growth.ask_phone),
+                growth.winback_discount_pct,
+                serde_json::to_string(cloud_addons)?,
+                flag(growth.profit_guard),
+                growth.min_margin_pct.clamp(0, 90)
             ],
         )?;
         Ok(())

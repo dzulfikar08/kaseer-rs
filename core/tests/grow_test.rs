@@ -80,6 +80,7 @@ fn codes_arrive_with_the_menu_and_a_sale_redeems_one_once() {
     let config = repo.settings().unwrap().config;
     assert!(!config.addon_prompt && config.ask_phone);
     assert_eq!(config.winback_discount_pct, 15);
+    assert!(config.profit_guard && config.min_margin_pct == 10, "an older cloud keeps the default guard");
 
     let now = "2026-11-17T00:00:00.000Z";
     let offer = repo.live_winback_offer(" k7qm-3x ", now).unwrap().expect("typed loosely, still found");
@@ -120,7 +121,7 @@ fn a_menu_pull_writes_only_the_grow_keys_and_the_clouds_pairs() {
     // The web companion keeps its own key (menuRev) in the same config.
     repo.conn().execute("UPDATE settings SET config_json = '{\"lostAfterDays\":45,\"menuRev\":7}' WHERE id = 1", []).unwrap();
     let body = br#"{"v":1,"rev":4,"products":[],
-        "growth":{"addonPrompt":true,"askPhone":false,"winbackDiscountPct":12},
+        "growth":{"addonPrompt":true,"askPhone":false,"winbackDiscountPct":12,"profitGuard":false,"minMarginPct":25},
         "addons":[{"anchorId":"kopi","partnerId":"roti","attachPct":36}]}"#;
     apply_menu(&repo, &parse_menu(body).unwrap()).unwrap();
     let raw: String = repo.conn().query_row("SELECT config_json FROM settings WHERE id = 1", [], |r| r.get(0)).unwrap();
@@ -130,6 +131,8 @@ fn a_menu_pull_writes_only_the_grow_keys_and_the_clouds_pairs() {
     let config = repo.settings().unwrap().config;
     assert!(!config.ask_phone);
     assert_eq!(config.winback_discount_pct, 12);
+    assert!(!config.profit_guard);
+    assert_eq!(config.min_margin_pct, 25);
     assert_eq!(config.cloud_addons.len(), 1);
     assert_eq!((config.cloud_addons[0].partner_id.as_str(), config.cloud_addons[0].attach_pct), ("roti", 36));
 }

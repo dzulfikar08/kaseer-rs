@@ -19,6 +19,8 @@ keyboard still does everything (F-keys, a barcode scanner as a keyboard wedge, E
   usually take with it (worked out from the last 30 days of receipts); the payment screen can ask
   for a WhatsApp number, so walk-ins become regulars with points; win-back codes sent from Kaseer
   Cloud are redeemed with F3. Both switches are in Settings.
+- **Profit guard**: discounts and win-back codes never take a sale under the owner's minimum
+  profit over HPP (cost of goods); the discount dialog shows how far each cart can go.
 - **Shift**: open and close the till, cash counts, the shift's sales.
 - **Inventory, Customers, Reports**: stock levels, the customer list, daily sales.
 - **Training mode**: a sandbox ledger for new cashiers; real sales are never touched.

@@ -58,6 +58,19 @@ pub struct MenuGrowth {
     pub addon_prompt: bool,
     pub ask_phone: bool,
     pub winback_discount_pct: i64,
+    /// Profit guard (0.6+ clouds); older payloads keep the register's default.
+    #[serde(default = "yes")]
+    pub profit_guard: bool,
+    #[serde(default = "ten")]
+    pub min_margin_pct: i64,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn ten() -> i64 {
+    10
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -274,7 +287,7 @@ pub fn apply_menu(repo: &Repo, payload: &MenuPayload) -> crate::repos::Result<Me
     // only when the source sends them (the LAN companion does not).
     if let Some(growth) = &payload.growth {
         let addons = payload.addons.clone().unwrap_or_default();
-        repo.set_grow_config(growth.addon_prompt, growth.ask_phone, growth.winback_discount_pct, &addons)?;
+        repo.set_grow_config(growth, &addons)?;
     }
     if let Some(offers) = &payload.offers {
         let rows: Vec<crate::repos::WinbackOfferRow> = offers

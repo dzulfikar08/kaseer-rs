@@ -45,6 +45,7 @@ use kaseer_core::loyalty::{
 };
 use kaseer_core::menu;
 use kaseer_core::money;
+use kaseer_core::profit::{cart_profit, max_order_discount_bps};
 use kaseer_core::payments::{self, PaymentState, Tender, TenderMethod};
 use kaseer_core::receipt::{AddonOffer, Sale, SaleLine, SaleTender, StoreInfo, render_receipt_text};
 use kaseer_core::repos::{Customer, Product, Repo, Settings, WinbackOfferRow};
@@ -94,6 +95,11 @@ pub struct RegisterScreen {
     addon_offers: Vec<AddonOffer>,
     /// Win-back code applied to this cart.
     offer: Option<WinbackOfferRow>,
+    /// The whole-sale discount the cashier (or a code) asked for, basis
+    /// points. The cart carries at most what the profit guard allows.
+    asked_bps: Option<i64>,
+    /// Product id -> HPP (cost), for the profit guard.
+    costs: HashMap<String, i64>,
     /// The attached customer's live code, looked up once per customer.
     offer_hint: Option<(String, Option<WinbackOfferRow>)>,
     code_input: Entity<InputState>,
@@ -159,6 +165,8 @@ impl RegisterScreen {
             addon_prompt: None,
             addon_offers: Vec::new(),
             offer: None,
+            asked_bps: None,
+            costs: HashMap::new(),
             offer_hint: None,
             code_input,
             recognition: None,
@@ -166,6 +174,7 @@ impl RegisterScreen {
             _subscriptions: Vec::new(),
         };
 
+        screen.costs = cost_map(&screen.products);
         let query = screen.query.clone();
         screen._subscriptions.push(cx.subscribe_in(
             &query,
@@ -398,11 +407,65 @@ impl RegisterScreen {
         self.addon_prompt = Some(pair.partner_id.clone());
     }
 
+    /// The largest whole-sale discount that keeps the owner's minimum
+    /// profit over HPP; None when the guard is off or no item has a cost.
+    fn max_discount_bps(&self) -> Option<i64> {
+        let config = &self.settings.config;
+        if !config.profit_guard {
+            return None;
+        }
+        max_order_discount_bps(&self.cart, &self.costs, &self.tax_rates, self.currency, config.min_margin_pct)
+    }
+
+    /// The cart carries the asked discount, or the guard's limit when that
+    /// is lower. Runs at the top of every render, so adding a thin-margin
+    /// item lowers the discount and adding a fat one gives it back.
+    fn apply_guard(&mut self) {
+        let applied = match (self.asked_bps, self.max_discount_bps()) {
+            (Some(asked), Some(max)) => Some(asked.min(max)),
+            (asked, None) => asked,
+            (None, Some(_)) => None,
+        }
+        .filter(|bps| *bps > 0)
+        .map(|bps| Discount::Percent { bps });
+        if self.cart.order_discount != applied {
+            self.cart = cart::set_order_discount(&self.cart, applied);
+        }
+    }
+
+    /// What the guard did to this cart, in words for the cashier.
+    fn guard_note(&self) -> Option<SharedString> {
+        let config = &self.settings.config;
+        if !config.profit_guard || self.cart.lines.is_empty() {
+            return None;
+        }
+        let floor = config.min_margin_pct;
+        let applied = match self.cart.order_discount {
+            Some(Discount::Percent { bps }) => bps,
+            _ => 0,
+        };
+        if let Some(asked) = self.asked_bps.filter(|asked| *asked > applied) {
+            return Some(SharedString::from(if applied == 0 {
+                format!("No discount on this sale: {}% would cut under your {floor}% minimum profit", percent_label(asked))
+            } else {
+                format!("Discount lowered to {}% to keep at least {floor}% profit", percent_label(applied))
+            }));
+        }
+        let profit = cart_profit(&self.cart, &self.costs, &self.tax_rates, self.currency)?;
+        (!profit.meets(floor)).then(|| {
+            SharedString::from(format!(
+                "Under your {floor}% minimum profit: {} over HPP",
+                fmt_money(profit.profit_minor(), self.currency)
+            ))
+        })
+    }
+
     /// A fresh cart: no add-on on offer, no code.
     fn reset_grow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.addon_prompt = None;
         self.addon_offers.clear();
         self.offer = None;
+        self.asked_bps = None;
         self.code_input.update(cx, |input, cx| input.set_value("", window, cx));
     }
 
@@ -428,6 +491,12 @@ impl RegisterScreen {
             };
             self.repo.upsert_customer(&customer).map_err(|e| e.to_string())?;
             self.customers = self.repo.customers(None).unwrap_or_default();
+        }
+        if self.max_discount_bps() == Some(0) {
+            return Err(format!(
+                "{code} can't be used on this sale: any discount would take it under your {}% minimum profit",
+                self.settings.config.min_margin_pct
+            ));
         }
         self.cart = cart::set_cart_customer(&self.cart, Some(offer.customer_id.clone()));
         self.sync_customer_select(window, cx);
@@ -466,7 +535,7 @@ impl RegisterScreen {
             return false;
         };
         self.cart.customer_id.as_deref() == Some(offer.customer_id.as_str())
-            && self.cart.order_discount == Some(Discount::Percent { bps: offer.pct * 100 })
+            && self.asked_bps == Some(offer.pct * 100)
     }
 
     /// The cashier changed the customer or the discount: the code is off.
@@ -565,6 +634,7 @@ impl RegisterScreen {
         self.offer_hint = None;
         self.refresh_bundles(cx);
         if let Ok(products) = self.repo.products(false, None) {
+            self.costs = cost_map(&products);
             self.products = products;
         }
         if let Ok(categories) = self.repo.categories() {
@@ -577,6 +647,7 @@ impl RegisterScreen {
     /// read keeps the previous snapshot instead of blanking the screen.
     fn refresh_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Ok(products) = self.repo.products(false, None) {
+            self.costs = cost_map(&products);
             self.products = products;
         }
         if let Ok(customers) = self.repo.customers(None) {
@@ -659,15 +730,17 @@ impl RegisterScreen {
         let bps = raw
             .parse::<f64>()
             .map(|value| (value * 100.0).round() as i64)
-            .unwrap_or(0);
-        self.cart =
-            cart::set_order_discount(&self.cart, (bps > 0).then_some(Discount::Percent { bps }));
+            .unwrap_or(0)
+            .clamp(0, 10_000);
+        self.asked_bps = (bps > 0).then_some(bps);
+        self.apply_guard();
         self.drop_stale_offer();
         cx.notify();
     }
 
     fn set_order_percent(&mut self, bps: i64, window: &mut Window, cx: &mut Context<Self>) {
-        self.cart = cart::set_order_discount(&self.cart, Some(Discount::Percent { bps }));
+        self.asked_bps = Some(bps);
+        self.apply_guard();
         let label = percent_label(bps);
         self.percent
             .update(cx, |input, cx| input.set_value(label, window, cx));
@@ -679,6 +752,7 @@ impl RegisterScreen {
     fn tap_clear(&mut self, cx: &mut Context<Self>) {
         if self.clear_armed {
             self.cart = cart::clear_cart(&self.cart);
+            self.asked_bps = None;
             self.clear_armed = false;
             self.addon_prompt = None;
             self.addon_offers.clear();
@@ -690,6 +764,7 @@ impl RegisterScreen {
     }
 
     fn clear_order_percent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.asked_bps = None;
         self.cart = cart::set_order_discount(&self.cart, None);
         self.percent
             .update(cx, |input, cx| input.set_value("", window, cx));
@@ -844,7 +919,10 @@ impl RegisterScreen {
             points_redeemed: redeemable,
             tax_by_rate_id: totals.tax_by_rate_id,
             // Only while the code's customer and discount are still on the sale.
-            offer_code: self.offer_applies().then(|| self.offer.as_ref().map(|o| o.code.clone())).flatten(),
+            // A code the guard took to 0% gave nothing, so it stays unused.
+            offer_code: (self.offer_applies() && self.cart.order_discount.is_some())
+                .then(|| self.offer.as_ref().map(|o| o.code.clone()))
+                .flatten(),
             // Taken while offered, and still in the cart at payment.
             addon_offers: self
                 .addon_offers
@@ -873,6 +951,7 @@ impl RegisterScreen {
             .map_err(|error| error.to_string())?;
 
         self.cart = cart::clear_cart(&self.cart);
+        self.asked_bps = None;
         cx.notify();
         Ok(sale)
     }
@@ -1635,10 +1714,18 @@ impl RegisterScreen {
         const PRESETS: [i64; 6] = [5, 10, 15, 20, 25, 50];
         let register = cx.entity();
         let percent = self.percent.clone();
-        let current = match self.cart.order_discount {
-            Some(Discount::Percent { bps }) => Some(bps),
-            _ => None,
-        };
+        let current = self.asked_bps;
+        // Profit guard: presets past the limit are greyed out, and the
+        // dialog says how far this cart can go.
+        let max = self.max_discount_bps();
+        let floor = self.settings.config.min_margin_pct;
+        let limit_text = max.map(|max| {
+            SharedString::from(if max == 0 {
+                format!("No discount keeps your {floor}% minimum profit on this sale.")
+            } else {
+                format!("Up to {}% keeps at least {floor}% profit over HPP.", percent_label(max))
+            })
+        });
         window.open_dialog(cx, move |dialog, _, cx| {
             use crate::theme::touch;
             let theme = cx.theme();
@@ -1648,6 +1735,7 @@ impl RegisterScreen {
             for pct in PRESETS {
                 let register = register.clone();
                 let selected = current == Some(pct * 100);
+                let allowed = max.is_none_or(|max| pct * 100 <= max);
                 grid = grid.child(
                     div()
                         .id(SharedString::from(format!("disc-{pct}")))
@@ -1662,14 +1750,18 @@ impl RegisterScreen {
                         .map(|key| {
                             if selected {
                                 key.bg(primary).text_color(on_primary)
+                            } else if !allowed {
+                                key.bg(surface).opacity(0.35)
                             } else {
                                 key.bg(surface).hover(move |style| style.bg(hover))
                             }
                         })
                         .child(SharedString::from(format!("{pct}%")))
-                        .on_click(move |_, window, cx| {
-                            register.update(cx, |r, cx| r.set_order_percent(pct * 100, window, cx));
-                            window.close_dialog(cx);
+                        .when(allowed, |key| {
+                            key.on_click(move |_, window, cx| {
+                                register.update(cx, |r, cx| r.set_order_percent(pct * 100, window, cx));
+                                window.close_dialog(cx);
+                            })
                         }),
                 );
             }
@@ -1693,6 +1785,9 @@ impl RegisterScreen {
                 .child(
                     v_flex()
                         .gap(px(16.))
+                        .when_some(limit_text.clone(), |col, text| {
+                            col.child(div().text_size(touch::FONT_LABEL).text_color(crate::theme::text_dim()).child(text))
+                        })
                         .child(grid)
                         .child(
                             h_flex()
@@ -1966,10 +2061,10 @@ impl RegisterScreen {
                 .child(label)
                 .child(super::money_text(value).text_right())
         };
-        let note = match (has_shift, has_items) {
-            (false, _) => Some("No open shift. Open one to take payment."),
-            (true, false) => None,
-            (true, true) => None,
+        let note = if has_shift {
+            self.guard_note()
+        } else {
+            Some(SharedString::from("No open shift. Open one to take payment."))
         };
         v_flex()
             .id("total-block")
@@ -2103,6 +2198,7 @@ impl Render for RegisterScreen {
         // Customers' "Sell to" hands its pick over through the
         // SelectedCustomer global; consume it before reading the cart.
         self.consume_selected_customer(window, cx);
+        self.apply_guard();
         self.sync_recognition();
         self.sync_offer_hint();
         let totals = self.totals();
@@ -3299,6 +3395,10 @@ fn digits_of(value: &str) -> String {
 
 fn non_empty(value: String) -> Option<String> {
     (!value.is_empty()).then_some(value)
+}
+
+fn cost_map(products: &[Product]) -> HashMap<String, i64> {
+    products.iter().filter(|p| p.cost_minor > 0).map(|p| (p.id.clone(), p.cost_minor)).collect()
 }
 
 fn stock_map(repo: &Repo, products: &[Product]) -> HashMap<String, i64> {

@@ -4,6 +4,16 @@ All notable changes to Kaseer are listed here. Versions follow [Semantic Version
 
 ## [Unreleased]
 
+### Added
+
+- Profit guard: a whole-sale discount never takes the sale under the owner's minimum profit over
+  HPP (cost of goods, default 10% of the sale). The discount dialog greys out the presets past
+  the limit and says how far this cart can go; a bigger discount, or a win-back code, is lowered
+  to the limit and the cart says so. Adding a high-margin item gives the discount back. A code
+  that would leave no discount at all is refused, so it stays unused. Products without an HPP
+  are not checked. Settings has the switch and the percentage; with Kaseer Cloud they follow the
+  owner's Grow settings.
+
 ## [0.5.0] - 2026-11-17
 
 The register now helps sell: it offers the usual add-on, takes win-back codes, and turns walk-ins
@@ -31,7 +41,7 @@ into regulars. With Kaseer Cloud, the owner sees what each of these brought in.
 - Ledger schema v5 (shared with the web companion): `sales.offer_code`,
   `sales.addon_offers_json` and the `winback_offers` table.
 
- - 2026-11-17
+## [0.4.1] - 2026-11-17
 
 Shift, Inventory and Customers get the register's big-button treatment.
 
